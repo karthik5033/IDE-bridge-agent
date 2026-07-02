@@ -2,6 +2,7 @@ import sys
 import traceback
 import config
 import time
+import webbrowser
 from checkpoint import save_checkpoint, load_checkpoint, clear_checkpoint
 from notifier import notify_phone
 from orchestrator import analyze_message
@@ -12,6 +13,9 @@ from antigravity_driver import (
 )
 from chat_driver import send_to_chat_ui, wait_for_chat_response, RateLimitDetected
 from playwright.sync_api import sync_playwright
+import base64
+from dev_server import DevServerManager
+from ui_critic import evaluate_ui
 
 
 def _send_to_chat_with_retry(page, text: str) -> str:
@@ -68,6 +72,10 @@ def run_bridge(initial_task: str):
         else:
             print("Starting fresh...")
 
+    print("\nStarting Dev Server Manager...")
+    dev_server = DevServerManager(config.DEV_SERVER_CMD, config.DEV_SERVER_CWD, config.DEV_SERVER_PORT)
+    dev_server.start()
+
     print("\nConnecting to Chrome via CDP...")
     with sync_playwright() as p:
         try:
@@ -94,6 +102,16 @@ def run_bridge(initial_task: str):
             page = ctx.new_page()
             page.goto(config.CHAT_SITE_URL, wait_until="domcontentloaded")
 
+        print("Setting up local dev server page in background tab...")
+        dev_page = ctx.new_page()
+        try:
+            dev_page.goto(f"http://localhost:{config.DEV_SERVER_PORT}")
+            if not chk:
+                webbrowser.open(f"http://localhost:{config.DEV_SERVER_PORT}")
+                print("Opened Dev Server in default browser.")
+        except Exception as e:
+            print(f"Warning: Could not navigate to dev server initially: {e}")
+
         input(
             "\n>> Please ensure you are logged in to the chat UI.\n"
             ">> Press Enter when the page is ready..."
@@ -113,8 +131,9 @@ def run_bridge(initial_task: str):
                     "CRITICAL RULES FOR YOU: "
                     "1. Have a rich, high-quality architectural conversation with the agent. Discuss design patterns, UI layout, and edge cases. "
                     "2. DO NOT demand full file contents or massive code dumps from the agent in its responses. The agent will write code to disk. Trust its confirmation. "
-                    "3. ALWAYS end your response by guiding the agent on the next logical step, but do it collaboratively rather than acting like a dictator. "
-                    "4. Output only the brief, architecture discussion, and the first step's goal.\n\n"
+                    "3. ALWAYS end your response by guiding the agent on the next logical step, but do it collaboratively rather than acting like a dictator. \n"
+                    "4. Output only the brief, architecture discussion, and the first step's goal.\n"
+                    "5. When the ENTIRE project is 100% finished and no further phases or steps are needed, you MUST output the exact codeword: [BRIDGE_TERMINATE]\n\n"
                     f"Task:\n{initial_task}"
                 )
                 
@@ -180,6 +199,49 @@ def run_bridge(initial_task: str):
                     save_checkpoint(turn, history_summary, phase, current_payload, next_recipient)
                     
                     if next_recipient == "chat":
+                        print("Antigravity finished step. Running UI Critic check...")
+                        
+                        critic_retry_count = chk.get("critic_retry_count", 0) if chk else 0
+                        
+                        # Refresh dev page and check errors
+                        try:
+                            dev_page.reload(wait_until="networkidle", timeout=10000)
+                        except Exception:
+                            pass
+                            
+                        new_errors = dev_server.get_new_errors()
+                        
+                        # Take screenshot
+                        try:
+                            screenshot_bytes = dev_page.screenshot(type="jpeg", quality=60)
+                            screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+                        except Exception as e:
+                            print(f"[Critic] Failed to take screenshot: {e}")
+                            screenshot_b64 = ""
+                            
+                        if config.CRITIC_TRIGGER == "error_or_bad_ui":
+                            critic_result = evaluate_ui(screenshot_b64, new_errors)
+                        else:
+                            critic_result = {"verdict": "pass"}
+                        
+                        if critic_result.get("verdict") == "fix_needed":
+                            critic_retry_count += 1
+                            if critic_retry_count >= config.CRITIC_RETRY_CAP:
+                                print(f"[Critic] Max retries ({config.CRITIC_RETRY_CAP}) reached. Escalating to Chat UI.")
+                                current_payload = f"The UI Critic failed {config.CRITIC_RETRY_CAP} times. Last reason: {critic_result.get('reason')}\n\nAntigravity's last report:\n{current_payload}"
+                                save_checkpoint(turn, history_summary, phase, current_payload, next_recipient, critic_retry_count=0)
+                            else:
+                                print(f"[Critic] Fix needed. Routing back to Antigravity (Attempt {critic_retry_count})")
+                                instruction = critic_result.get('instruction', 'Fix the visual issues.')
+                                current_payload = f"UI Critic Feedback:\nReason: {critic_result.get('reason')}\nInstruction: {instruction}"
+                                next_recipient = "antigravity"
+                                save_checkpoint(turn, history_summary, phase, current_payload, next_recipient, critic_retry_count=critic_retry_count)
+                                continue # Skip Chat UI, go back to top of loop
+                        else:
+                            print("[Critic] Verdict: pass. Forwarding to Chat UI.")
+                            critic_retry_count = 0
+                            save_checkpoint(turn, history_summary, phase, current_payload, next_recipient, critic_retry_count=0)
+
                         print("Forwarding payload to Chat UI...")
                         chat_response = _send_to_chat_with_retry(page, current_payload)
                         print(f"Chat UI response received ({len(chat_response)} chars).")
@@ -194,7 +256,7 @@ def run_bridge(initial_task: str):
                             print(f"Qwen Analysis: {analysis}")
                             input("Press Enter to continue loop anyway, or Ctrl+C to abort...")
                         
-                        if config.STOP_TOKEN in chat_response:
+                        if analysis.get("is_done"):
                             print("Task signaled DONE by Chat UI.")
                             exited_cleanly = True
                             break
@@ -219,7 +281,7 @@ def run_bridge(initial_task: str):
                             print(f"Qwen Analysis: {analysis}")
                             input("Press Enter to continue loop anyway, or Ctrl+C to abort...")
                         
-                        if config.STOP_TOKEN in ag_response:
+                        if analysis.get("is_done"):
                             print("Task signaled DONE by Antigravity.")
                             exited_cleanly = True
                             break
@@ -239,6 +301,8 @@ def run_bridge(initial_task: str):
             notify_phone(f"Unhandled exception: {e}", "Bridge Error")
 
         finally:
+            print("Stopping Dev Server...")
+            dev_server.stop()
             print("Disconnecting from Chrome...")
             browser.close()
 

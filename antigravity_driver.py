@@ -13,6 +13,7 @@ import ctypes
 import ctypes.wintypes
 import pyperclip
 import pyautogui
+pyautogui.FAILSAFE = False
 from pywinauto import Desktop
 import config
 from notifier import notify_phone
@@ -211,6 +212,14 @@ def send_to_antigravity(win, text: str):
     try:
         print("[Antigravity] Sending instruction...")
 
+        # Clear any stale response file before pinging the agent
+        response_file = r"d:\coding_files\kpautomate\bridge_response.txt"
+        if os.path.exists(response_file):
+            try:
+                os.remove(response_file)
+            except Exception:
+                pass
+
         # Reliably bring the window to the front
         _activate_window(win)
         print("[Antigravity] Window activated and verified in foreground.")
@@ -236,7 +245,7 @@ def send_to_antigravity(win, text: str):
         # Paste via clipboard
         pyperclip.copy(text)
         pyautogui.hotkey('ctrl', 'v')
-        time.sleep(0.3)
+        time.sleep(1.5)
 
         # Send the message
         pyautogui.press('enter')
@@ -250,47 +259,27 @@ def send_to_antigravity(win, text: str):
         raise
 
 
+import os
+
 def wait_for_antigravity_response(win) -> str:
-    """Polls the conversation panel text every POLL_INTERVAL seconds.
-    Returns the response text once it hasn't changed for IDLE_STABLE_SECONDS.
-
-    Reads text from the UIA accessibility tree of the conversation panel
-    (descendants' window_text()), falling back to clipboard if needed.
+    """Waits for Antigravity to write its response to bridge_response.txt.
+    This is vastly more reliable than UI parsing or clipboard copying.
     """
-    try:
-        print("[Antigravity] Waiting for response...")
+    response_file = r"d:\coding_files\kpautomate\bridge_response.txt"
+    print("[Antigravity] Waiting for response file...")
 
-        # Take a baseline snapshot before Antigravity starts responding
-        time.sleep(1.5)  # brief pause to let Antigravity start processing
-        baseline_text = _read_conversation_text(win)
+    while True:
+        time.sleep(1)
+        if os.path.exists(response_file):
+            time.sleep(0.5) # Wait a moment for file write to complete
+            try:
+                with open(response_file, "r", encoding="utf-8") as f:
+                    response = f.read().strip()
+                os.remove(response_file)
+                
+                if response:
+                    print(f"[Antigravity] Extracted response from file ({len(response)} chars).")
+                    return response
+            except Exception as e:
+                print(f"[Antigravity] Error reading response file: {e}")
 
-        last_text = baseline_text
-        stable_time = 0.0
-
-        while True:
-            time.sleep(config.POLL_INTERVAL)
-            current_text = _read_conversation_text(win)
-
-            if current_text != last_text:
-                last_text = current_text
-                stable_time = 0.0
-            else:
-                # Only count as stable if text has actually changed from baseline
-                if current_text and current_text != baseline_text:
-                    stable_time += config.POLL_INTERVAL
-                    if stable_time >= config.IDLE_STABLE_SECONDS:
-                        print(
-                            f"[Antigravity] Response stable for "
-                            f"{config.IDLE_STABLE_SECONDS}s."
-                        )
-                        break
-
-        # Extract just the latest response from the full conversation
-        response = _extract_latest_response(last_text, _last_sent_instruction)
-        print(f"[Antigravity] Extracted response ({len(response)} chars).")
-        return response
-
-    except Exception as e:
-        print(f"[Antigravity] Error waiting for response: {e}")
-        notify_phone(f"Failed to read Antigravity output: {e}", "Bridge Error")
-        raise

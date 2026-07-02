@@ -1,0 +1,40 @@
+Build ui_critic.py — a component that only activates on two conditions: a runtime/compile error appears in the dev server output, OR the UI visually reads as generic AI-generated design. It is silent otherwise; it does not run on every step.
+Trigger conditions (check both, every time Antigravity reports a step done that touched frontend files):
+
+Console tail contains an error/exception/stack trace since the last check.
+Screenshot judged against the aesthetic criteria below comes back "generic."
+
+If neither condition is true, do nothing — pass Antigravity's report straight through to the chat UI as normal.
+Setup:
+
+Bridge launches the dev server itself as a subprocess (npm run dev or equivalent), captures stdout/stderr into a rolling buffer, does not rely on a manually-run terminal.
+A dedicated Playwright tab stays open on localhost:<port>, separate from the chat UI tab.
+Model: qwen3-vl:8b via Ollama. Screenshot + console tail as input.
+
+Aesthetic judging criteria — feed this directly into the critic's system prompt, don't paraphrase it:
+Reject the design if it clusters into any of these generic AI-generated defaults:
+
+Warm cream background (near #F4F1EA) with a high-contrast serif display and a terracotta/warm-clay accent (near #D97757).
+Near-black background with a single bright acid-green or vermilion accent and no other distinguishing structure.
+Broadsheet-style layout with hairline rules, zero border-radius, dense newspaper-like columns, used regardless of whether the content is actually editorial.
+Numbered section markers (01/02/03) used as decoration where the content isn't a real sequence.
+Excessive/scattered animation with no orchestrated purpose — motion that reads as "AI added movement because it could," not because the content called for it.
+Generic centered hero with big-number-plus-small-label-plus-gradient-accent when nothing in the brief calls for that pattern.
+Inconsistent type scale, default browser spacing, unstyled focus states, or visible template scaffolding (Bootstrap/Tailwind defaults with zero customization).
+
+Accept the design if: it shows a deliberate, specific point of view tied to what the app actually is (not aesthetic choices that could apply to any product); type pairing looks intentional (not default sans-serif everywhere); spacing and hierarchy are disciplined; motion, if present, is restrained and purposeful; the whole thing reads professional/premium rather than templated.
+Critic output contract:
+{"verdict": "pass" | "fix_needed", "reason": str, "instruction": str | None}
+instruction must be one concrete, actionable fix aimed at Antigravity — not a vague "make it look better," but something like "replace the generic centered hero with X" or "the button hover state has no transition, add one" or "TypeError at line 42 in App.jsx: <error text>, fix the null check."
+Loop integration:
+
+Critic fail → send instruction straight to Antigravity, do not forward to chat UI this round, increment critic_retry_count.
+Critic pass → forward Antigravity's report to chat UI as normal, reset critic_retry_count to 0.
+critic_retry_count hits 3 without passing → escalate to chat UI with a note that the critic couldn't resolve it after 3 attempts, include the critic's last reason, let the higher-context model take over.
+
+Config additions:
+DEV_SERVER_CMD = str
+DEV_SERVER_PORT = int
+CRITIC_MODEL = "qwen3-vl:8b"
+CRITIC_RETRY_CAP = 3
+CRITIC_TRIGGER = "error_or_bad_ui"   # not "every_step"

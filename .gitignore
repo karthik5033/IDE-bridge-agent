@@ -7,3 +7,4 @@ env/
 ENV/
 .env
 browser_profile/
+bridge_checkpoint.json

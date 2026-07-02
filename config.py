@@ -57,3 +57,11 @@ def check_config():
             "Configuration incomplete! Fill these in config.py:\n  - "
             + "\n  - ".join(missing)
         )
+
+# --- Dev Server & UI Critic Config ---
+DEV_SERVER_CMD = "npm run dev"
+DEV_SERVER_CWD = r"d:\coding_files\kpautomate\portfolio-app"
+DEV_SERVER_PORT = 3000
+CRITIC_MODEL = "qwen3-vl:8b"
+CRITIC_RETRY_CAP = 3
+CRITIC_TRIGGER = "error_or_bad_ui"

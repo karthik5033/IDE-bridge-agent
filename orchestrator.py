@@ -51,10 +51,19 @@ def analyze_message(text: str, system: str = ORCHESTRATOR_SYSTEM) -> dict:
         parsed = json.loads(raw_output.strip())
         print(f"[Orchestrator] Analysis result: {parsed}")
         
+        # We explicitly override the LLM's is_done guess with a strict codeword check
+        actual_is_done = "[BRIDGE_TERMINATE]" in text
+        
+        # Safeguard against the LLM's false positive error detection
+        actual_is_error = bool(parsed.get("is_error", False))
+        if actual_is_error:
+            if "Traceback" not in text and "Error:" not in text and "Exception:" not in text and "ERR!" not in text:
+                actual_is_error = False
+
         # Ensure fallback fields
         return {
-            "is_done": bool(parsed.get("is_done", False)),
-            "is_error": bool(parsed.get("is_error", False)),
+            "is_done": actual_is_done,
+            "is_error": actual_is_error,
             "phase_tag": str(parsed.get("phase_tag", "Unknown"))
         }
         

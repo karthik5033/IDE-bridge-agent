@@ -29,6 +29,8 @@ def check_rate_limit(page):
     except RateLimitDetected:
         raise
     except Exception as e:
+        if "Target page, context or browser has been closed" in str(e):
+            raise
         # Don't crash the loop if the body text read fails for some reason
         print(f"[Chat UI] Warning: Could not check rate limit: {e}")
 
@@ -108,6 +110,10 @@ _UI_NOISE = [
     "Claude is AI and can make mistakes. Please double-check responses.",
     "Claude can make mistakes. Please double-check responses.",
     "Share",
+    "Quick answer",
+    "Want to be notified when Claude responds?",
+    "Notify",
+    "Show less",
 ]
 
 
@@ -124,7 +130,19 @@ def _clean_response(text: str) -> str:
             continue
         if stripped.lower().endswith(('am', 'pm')) and len(stripped) < 10:
             continue  # timestamp like '5:52 pm'
-        if any(noise in stripped for noise in _UI_NOISE):
+        is_noise = False
+        for noise in _UI_NOISE:
+            if len(noise) < 15:
+                # Exact match for short UI buttons (case insensitive)
+                if stripped.lower() == noise.lower():
+                    is_noise = True
+                    break
+            else:
+                # Substring match for long disclaimers (case insensitive)
+                if noise.lower() in stripped.lower():
+                    is_noise = True
+                    break
+        if is_noise:
             continue
         cleaned.append(stripped)
     return "\n".join(cleaned).strip()
@@ -139,6 +157,8 @@ def _get_full_page_text(page) -> str:
         # Otherwise fallback to body
         return page.locator("body").inner_text(timeout=2000)
     except Exception as e:
+        if "Target page, context or browser has been closed" in str(e):
+            raise
         print(f"[Chat UI] Warning: full text extraction failed: {e}")
         return ""
 

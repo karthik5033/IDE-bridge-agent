@@ -2,7 +2,7 @@ import json
 import os
 import config
 
-def save_checkpoint(turn: int, history_summary: str, phase: int = 1, current_payload: str = "", next_recipient: str = "chat"):
+def save_checkpoint(turn: int, history_summary: str, phase: int = 1, current_payload: str = "", next_recipient: str = "chat", **kwargs):
     """Saves the current turn, phase, and history summary to the checkpoint file."""
     try:
         data = {
@@ -12,6 +12,7 @@ def save_checkpoint(turn: int, history_summary: str, phase: int = 1, current_pay
             "current_payload": current_payload,
             "next_recipient": next_recipient
         }
+        data.update(kwargs)
         with open(config.CHECKPOINT_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
     except Exception as e:
