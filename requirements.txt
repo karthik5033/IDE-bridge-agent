@@ -1,0 +1,5 @@
+playwright
+pywinauto
+pyperclip
+pyautogui
+requests
