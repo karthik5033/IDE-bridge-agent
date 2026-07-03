@@ -1,7 +1,13 @@
-OLLAMA_MODEL = "qwen2.5-coder:latest"
-OLLAMA_URL = "http://localhost:11434/api/generate"
+import os
 
-CHAT_SITE_URL = "https://claude.ai/new"   # or "https://chatgpt.com"
+STOP_REQUESTED = False
+
+OLLAMA_MODELS = {
+    "orchestrator": "qwen2.5",         # signal detection, phase tagging
+    "code_analyzer": "qwen2.5-coder:latest",  # error analysis, code review
+    "local_critic": "qwen3-vl:8b",        # fallback vision critic (when ChatGPT unavailable)
+}
+OLLAMA_URL = "http://localhost:11434/api/generate"
 CHROME_CDP_URL = "http://localhost:9222"   # Chrome remote debugging port
 
 # CSS selectors for Claude.ai (found via find_selectors.py)
@@ -62,6 +68,48 @@ def check_config():
 DEV_SERVER_CMD = "npm run dev"
 DEV_SERVER_CWD = r"d:\coding_files\kpautomate\portfolio-app"
 DEV_SERVER_PORT = 3000
+CRITIC_MODE = "chatgpt"  # "local" or "chatgpt"
 CRITIC_MODEL = "qwen3-vl:8b"
 CRITIC_RETRY_CAP = 3
 CRITIC_TRIGGER = "error_or_bad_ui"
+
+CLAUDE_SELECTORS = {
+    "input_box": 'div[data-testid="chat-input"]',
+    "send_button": None,
+    "file_upload": 'input[type="file"]',
+    "latest_response": 'div.font-claude-message',
+}
+
+CHATGPT_SELECTORS = {
+    "input_box": 'div[id="prompt-textarea"]',
+    "send_button": 'button[data-testid="send-button"]',
+    "file_upload": 'input#upload-files',
+    "latest_response": 'div[data-message-author-role="assistant"]',
+}
+
+CHAT_PLATFORMS = {
+    "claude": {
+        "url": "https://claude.ai/new",
+        "selectors": CLAUDE_SELECTORS,
+        "stop_indicator": 'button[aria-label="Stop Response"]',
+        "noise": [
+            "Sonnet 5 Medium", "Sonnet 4 Medium", "Haiku 3.5",
+            "Claude is AI and can make mistakes. Please double-check responses.",
+            "Claude can make mistakes. Please double-check responses.",
+            "Share", "Quick answer", "Want to be notified when Claude responds?",
+            "Notify", "Show less"
+        ]
+    },
+    "chatgpt": {
+        "url": "https://chatgpt.com",
+        "selectors": CHATGPT_SELECTORS,
+        "stop_indicator": 'button[aria-label="Stop generating"]',
+        "noise": ["ChatGPT can make mistakes. Check important info."]
+    }
+}
+
+def load_prompt(filename: str, **kwargs) -> str:
+    prompt_path = os.path.join(os.path.dirname(__file__), "prompts", filename)
+    with open(prompt_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return content.format(**kwargs) if kwargs else content

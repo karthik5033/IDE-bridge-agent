@@ -8,6 +8,7 @@ Uses the Playwright page object connected to the user's real Chrome browser.
 import time
 import random
 import config
+from bridge_logger import bprint as print, binput as input
 from notifier import notify_phone
 
 
@@ -35,9 +36,11 @@ def check_rate_limit(page):
         print(f"[Chat UI] Warning: Could not check rate limit: {e}")
 
 
-def send_to_chat_ui(page, text: str):
-    """Checks rate limit, fills the chat input, and presses Enter to send.
-    Adds a randomized human-like delay before sending (anti-bot)."""
+def send_to_chat_ui(page, text: str, platform: dict = None):
+    """Checks rate limit, fills the chat input, and presses Enter to send."""
+    if platform is None:
+        platform = config.CHAT_PLATFORMS["claude"]
+
     try:
         print("[Chat UI] Checking rate limits before sending...")
         check_rate_limit(page)
@@ -48,7 +51,7 @@ def send_to_chat_ui(page, text: str):
         time.sleep(delay)
 
         print("[Chat UI] Sending output to chat...")
-        input_selector = config.CHAT_SELECTORS["input_box"]
+        input_selector = platform["selectors"]["input_box"]
 
         # Click the input to focus it
         input_locator = page.locator(input_selector)
@@ -63,9 +66,8 @@ def send_to_chat_ui(page, text: str):
         page.keyboard.press("Backspace")
         time.sleep(0.1)
 
-        # Paste via clipboard (fastest and handles special characters)
-        page.evaluate(f"navigator.clipboard.writeText({repr(text)})")
-        page.keyboard.press("Control+v")
+        # Insert text directly (bypasses OS clipboard and works in unfocused windows)
+        page.keyboard.insert_text(text)
         time.sleep(0.3)
 
         # Press Enter to send
@@ -102,22 +104,7 @@ def send_to_chat_ui(page, text: str):
         raise
 
 
-# UI noise patterns to strip from Claude's response
-_UI_NOISE = [
-    "Sonnet 5 Medium",
-    "Sonnet 4 Medium",
-    "Haiku 3.5",
-    "Claude is AI and can make mistakes. Please double-check responses.",
-    "Claude can make mistakes. Please double-check responses.",
-    "Share",
-    "Quick answer",
-    "Want to be notified when Claude responds?",
-    "Notify",
-    "Show less",
-]
-
-
-def _clean_response(text: str) -> str:
+def _clean_response(text: str, noise_list: list) -> str:
     """Strips known UI noise from the extracted response text."""
     if not text:
         return ""
@@ -131,7 +118,7 @@ def _clean_response(text: str) -> str:
         if stripped.lower().endswith(('am', 'pm')) and len(stripped) < 10:
             continue  # timestamp like '5:52 pm'
         is_noise = False
-        for noise in _UI_NOISE:
+        for noise in noise_list:
             if len(noise) < 15:
                 # Exact match for short UI buttons (case insensitive)
                 if stripped.lower() == noise.lower():
@@ -163,15 +150,14 @@ def _get_full_page_text(page) -> str:
         return ""
 
 
-def _is_streaming(page) -> bool:
-    """Checks if Claude is still generating a response (streaming indicator visible)."""
+def _is_streaming(page, stop_indicator: str) -> bool:
+    """Checks if the assistant is still generating a response."""
     try:
-        # Claude shows a stop button while streaming
-        stop_btn = page.locator('button[aria-label="Stop Response"]')
+        stop_btn = page.locator(stop_indicator)
         if stop_btn.count() > 0 and stop_btn.is_visible():
             return True
 
-        # Also check for any element with data-is-streaming
+        # Fallback for Claude's generic indicator
         streaming = page.locator('[data-is-streaming="true"]')
         if streaming.count() > 0:
             return True
@@ -181,10 +167,10 @@ def _is_streaming(page) -> bool:
         return False
 
 
-def wait_for_chat_response(page, sent_text: str) -> str:
-    """Polls the chat page for the assistant's response.
-    Returns the text once it hasn't changed for IDLE_STABLE_SECONDS.
-    Also checks for rate-limit messages during polling."""
+def wait_for_chat_response(page, sent_text: str, platform: dict = None) -> str:
+    """Polls the chat page for the assistant's response."""
+    if platform is None:
+        platform = config.CHAT_PLATFORMS["claude"]
     try:
         print("[Chat UI] Waiting for response...")
 
@@ -214,13 +200,13 @@ def wait_for_chat_response(page, sent_text: str) -> str:
             
             # Extract just the response after our prompt
             current_text = fuzzy_extract_after(full_text, sent_text)
-            current_text = _clean_response(current_text)
+            current_text = _clean_response(current_text, platform["noise"])
 
             if current_text != last_text:
                 last_text = current_text
                 stable_time = 0.0
             else:
-                if current_text and not _is_streaming(page):
+                if current_text and not _is_streaming(page, platform["stop_indicator"]):
                     stable_time += config.POLL_INTERVAL
                     if stable_time >= config.IDLE_STABLE_SECONDS:
                         print(

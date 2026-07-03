@@ -13,6 +13,7 @@ import ctypes
 import ctypes.wintypes
 import pyperclip
 import pyautogui
+from bridge_logger import bprint as print, binput as input
 pyautogui.FAILSAFE = False
 from pywinauto import Desktop
 import config
@@ -230,9 +231,10 @@ def send_to_antigravity(win, text: str):
         # which is where the Antigravity chat input is permanently docked.
         rect = win.rectangle()
         
-        # Click 150px from the right edge, and 80px from the bottom (above status bar)
+        # Click 150px from the right edge, and 150px from the bottom 
+        # (80px was too low and might hit the status bar or attachment buttons!)
         input_x = rect.right - 150
-        input_y = rect.bottom - 80
+        input_y = rect.bottom - 150
 
         print(f"[Antigravity] Clicking chat input at ({input_x}, {input_y})...")
         pyautogui.click(input_x, input_y)

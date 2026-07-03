@@ -1,40 +1,109 @@
-Build ui_critic.py — a component that only activates on two conditions: a runtime/compile error appears in the dev server output, OR the UI visually reads as generic AI-generated design. It is silent otherwise; it does not run on every step.
-Trigger conditions (check both, every time Antigravity reports a step done that touched frontend files):
+Alright, I've gone through your entire codebase — 
 
-Console tail contains an error/exception/stack trace since the last check.
-Screenshot judged against the aesthetic criteria below comes back "generic."
+main.py
+, 
 
-If neither condition is true, do nothing — pass Antigravity's report straight through to the chat UI as normal.
-Setup:
+orchestrator.py
+, 
 
-Bridge launches the dev server itself as a subprocess (npm run dev or equivalent), captures stdout/stderr into a rolling buffer, does not rely on a manually-run terminal.
-A dedicated Playwright tab stays open on localhost:<port>, separate from the chat UI tab.
-Model: qwen3-vl:8b via Ollama. Screenshot + console tail as input.
+ui_critic.py
+, 
 
-Aesthetic judging criteria — feed this directly into the critic's system prompt, don't paraphrase it:
-Reject the design if it clusters into any of these generic AI-generated defaults:
+config.py
+, 
 
-Warm cream background (near #F4F1EA) with a high-contrast serif display and a terracotta/warm-clay accent (near #D97757).
-Near-black background with a single bright acid-green or vermilion accent and no other distinguishing structure.
-Broadsheet-style layout with hairline rules, zero border-radius, dense newspaper-like columns, used regardless of whether the content is actually editorial.
-Numbered section markers (01/02/03) used as decoration where the content isn't a real sequence.
-Excessive/scattered animation with no orchestrated purpose — motion that reads as "AI added movement because it could," not because the content called for it.
-Generic centered hero with big-number-plus-small-label-plus-gradient-accent when nothing in the brief calls for that pattern.
-Inconsistent type scale, default browser spacing, unstyled focus states, or visible template scaffolding (Bootstrap/Tailwind defaults with zero customization).
+prd.md
+, the whole thing. Let me give you my honest take on what's actually bottlenecking the quality, and then we can talk about the dashboard/mobile stuff.
 
-Accept the design if: it shows a deliberate, specific point of view tied to what the app actually is (not aesthetic choices that could apply to any product); type pairing looks intentional (not default sans-serif everywhere); spacing and hierarchy are disciplined; motion, if present, is restrained and purposeful; the whole thing reads professional/premium rather than templated.
-Critic output contract:
-{"verdict": "pass" | "fix_needed", "reason": str, "instruction": str | None}
-instruction must be one concrete, actionable fix aimed at Antigravity — not a vague "make it look better," but something like "replace the generic centered hero with X" or "the button hover state has no transition, add one" or "TypeError at line 42 in App.jsx: <error text>, fix the null check."
-Loop integration:
+The Real Problem: It's Not the Models
+Your local models (qwen2.5-coder, qwen3.5:9b) are only doing signal detection — "is this done?", "is this an error?". They're fine for that job. The quality of the output apps is bottlenecked by two things:
 
-Critic fail → send instruction straight to Antigravity, do not forward to chat UI this round, increment critic_retry_count.
-Critic pass → forward Antigravity's report to chat UI as normal, reset critic_retry_count to 0.
-critic_retry_count hits 3 without passing → escalate to chat UI with a note that the critic couldn't resolve it after 3 attempts, include the critic's last reason, let the higher-context model take over.
+1. The prompts going into Claude are too vague
+Look at your 
 
-Config additions:
-DEV_SERVER_CMD = str
-DEV_SERVER_PORT = int
-CRITIC_MODEL = "qwen3-vl:8b"
-CRITIC_RETRY_CAP = 3
-CRITIC_TRIGGER = "error_or_bad_ui"   # not "every_step"
+Phase 1 prompt
+:
+
+python
+"Focus heavily on high-end aesthetics, robust architecture, and premium 'vibecode' UI/UX."
+This is exactly the kind of instruction that produces the "AI dark theme bullshit" you hate. When you say "premium" to an AI, it defaults to:
+
+Dark background + neon accent
+Glassmorphism everywhere
+Meaningless parallax/scroll animations
+Generic hero section with big number + label
+shadcn, Linear, Vercel, Apple — these look good because they have specific, opinionated design decisions, not "premium vibes". The fix is design system injection — feeding concrete design constraints, not adjectives.
+
+2. The UI Critic is a 8B vision model judging Apple-level design
+Your 
+
+ui_critic.py
+ is using qwen3-vl:8b. That's a tiny vision model. It can catch obvious failures (blank page, compile errors, the most egregious AI patterns you listed), but it genuinely cannot judge whether something is at shadcn-level or not. It'll pass mediocre designs all day.
+
+Concrete Upgrades I'd Suggest (in priority order)
+🔥 Upgrade 1: Design System Injection (Biggest Impact, Zero Cost)
+Instead of telling Claude "make it premium", you create a design_library/ folder with actual design specs that get injected into the Phase 1 prompt:
+
+design_library/
+├── tokens.json          # spacing: 4-8-12-16-24-32-48-64px, exact color palettes in HSL
+├── typography.md        # "Use Inter 400/500/600 for body, Instrument Serif for display only"
+├── patterns/
+│   ├── navigation.md    # actual code patterns for navs (not "make a nav")
+│   ├── cards.md
+│   └── layouts.md
+└── anti-patterns.md     # "NEVER do X, Y, Z" list (your existing critic criteria, but upstream)
+The Phase 1 prompt becomes: "Here is the design system you MUST follow. Do not deviate. Here are anti-patterns to avoid. Now build this task within these constraints."
+
+This alone would 10x the output quality. Constraints produce better design than freedom.
+
+🔥 Upgrade 2: Multi-Model Orchestration
+Right now you use one model for everything. Instead:
+
+Role	Model	Why
+Orchestrator / Signal Detection	qwen3.5:9b	Better reasoning, handles nuance
+Code Error Analysis	qwen2.5-coder:latest	Purpose-built for code patterns
+UI Critic	Route screenshot to Claude itself via the chat tab	Your 8B vision model isn't good enough. Claude can actually judge design quality. Use one of your chat turns for it.
+The idea of using Claude as the critic is key — you're already paying (in rate-limit budget) for that chat session. Having a 8B local model judge UI that's supposed to be Apple-level is like asking an intern to review a senior architect's work.
+
+🔥 Upgrade 3: Reference-Driven Prompting
+Before the build starts, inject actual screenshots or URLs of the style you want:
+
+python
+phase1_prompt = f"""
+Reference sites for design direction:
+- https://ui.shadcn.com (component patterns, spacing, restraint)
+- https://linear.app (layout density, typography, motion)
+- https://vercel.com (grid systems, dark mode done right)
+The app should feel like it belongs on these sites. Study their:
+- Type scale (not default, not decorative)
+- Spacing rhythm (consistent, not arbitrary)
+- Color usage (2-3 colors max, not a rainbow)
+- Motion (purposeful, <300ms, only opacity+transform)
+Task: {initial_task}
+"""
+💻 Upgrade 4: Web Dashboard + Mobile Control
+For the "terminal is boring" problem, here's what I'd build:
+
+Stack: FastAPI (Python backend) + WebSocket + a React/Next.js frontend as a PWA
+
+Dashboard shows:
+
+Live turn counter, current phase, which agent is active
+Real-time streaming of agent conversations (both sides)
+Dev server screenshot (auto-refreshing)
+Console/error logs
+History of all turns with collapsible details
+Mobile controls (via PWA or just responsive web):
+
+Start/Stop/Pause buttons
+Inject a mid-run instruction ("change the color scheme", "skip this step")
+ntfy still works as a backup notification channel
+View screenshots of current state
+This is doable but it's a proper project — probably a Phase 2 thing after the prompt quality is fixed.
+
+What I'd Prioritize
+Design library + better prompts — this is a few hours of work and will immediately fix the "noob level output" problem. No new code needed, just better prompt templates and a curated reference folder.
+Swap orchestrator to qwen3.5:9b — one-line config change, better reasoning.
+Route UI critic screenshots through Claude instead of the 8B local model — moderate code change in the loop.
+Web dashboard — bigger project, but transforms the UX completely.
+What resonates with you? Want to start tackling any of these, or do you want to riff on other ideas first?

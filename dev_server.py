@@ -3,6 +3,7 @@ import threading
 import queue
 import time
 import os
+from bridge_logger import bprint as print, binput as input
 
 class DevServerManager:
     def __init__(self, cmd: str, cwd: str, port: int):
