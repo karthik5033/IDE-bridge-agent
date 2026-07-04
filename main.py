@@ -17,7 +17,41 @@ from playwright.sync_api import sync_playwright
 import base64
 import os
 from dev_server import DevServerManager
-from ui_critic import evaluate_ui
+from ui_critic import evaluate_ui, capture_page_context
+
+
+def _is_question_response(text: str, analysis: dict = None) -> bool:
+    """Detects if a chat response is asking a question instead of giving a command."""
+    # Check orchestrator signal first
+    if analysis and analysis.get("is_question"):
+        return True
+    
+    lower = text.lower()
+    
+    # Check for numbered option lists (1. ... 2. ...)
+    import re
+    if re.search(r'\n\s*[12]\s*[\.\)\:]\s+', text):
+        # Has numbered options AND some question-like phrasing
+        option_phrases = ["option", "choose", "prefer", "select", "which", "want to",
+                         "continue", "start fresh", "from scratch", "or do you"]
+        if any(p in lower for p in option_phrases):
+            return True
+    
+    # Check for direct question patterns (don't require ? at end)
+    question_patterns = [
+        "sound good", "do you want", "what do you think", "should we",
+        "do you prefer", "what's your", "before we start", "before we begin",
+        "worth confirming", "happy to go with", "before scaffolding",
+        "or do you want to", "one open question", "before we proceed",
+        "before moving on", "quick check", "is this task a continuation",
+        "shall i", "should i", "would you like", "let me know",
+        "before i proceed", "before i lay out", "before i start",
+        "continue existing", "start a brand new", "which approach",
+    ]
+    if any(p in lower for p in question_patterns):
+        return True
+    
+    return False
 
 
 def _load_design_library():
@@ -165,6 +199,12 @@ def run_bridge(initial_task: str):
 
         print("Setting up local dev server page in background tab...")
         dev_page = ctx.new_page()
+        
+        # Capture browser console errors
+        browser_console_errors = []
+        dev_page.on("console", lambda msg: browser_console_errors.append(f"[{msg.type}] {msg.text}") if msg.type in ["error", "warning"] else None)
+        dev_page.on("pageerror", lambda err: browser_console_errors.append(f"[PageError] {err}"))
+        
         try:
             dev_page.goto(f"http://localhost:{config.DEV_SERVER_PORT}")
             if not chk:
@@ -172,7 +212,6 @@ def run_bridge(initial_task: str):
                 print("Opened Dev Server in default browser.")
         except Exception as e:
             print(f"Warning: Could not navigate to dev server initially: {e}")
-
 
         exited_cleanly = False
 
@@ -205,23 +244,20 @@ def run_bridge(initial_task: str):
                 # If so, auto-reply to keep the flow moving and avoid a deadlock.
                 max_clarifications = 3
                 for _ in range(max_clarifications):
-                    lower = current_payload.lower()
-                    ends_with_question = lower.rstrip().endswith("?")
-                    question_phrases = ["sound good", "do you want", "what do you think", 
-                                       "should we", "do you prefer", "what's your", "before we start",
-                                       "worth confirming", "happy to go with", "before scaffolding",
-                                       "or do you want to", "one open question"]
-                    is_discussion = ends_with_question and any(p in lower for p in question_phrases)
-                    
-                    if not is_discussion:
+                    if not _is_question_response(current_payload, analysis):
                         break
                     
                     print("[Orchestrator] Claude is asking a clarification question, not giving a command.")
                     print("[Orchestrator] Auto-replying with 'proceed' to keep the flow moving...")
-                    auto_reply = "Proceed with your best judgment on the open questions. Give me the first concrete, executable command."
+                    auto_reply = (
+                        "Do NOT ask questions. You are in a fully automated pipeline with no human to answer. "
+                        "Make your best senior-dev decision on all open questions and give me the FIRST concrete, "
+                        "executable command for the coding agent. Start with project scaffolding."
+                    )
                     chat_response = _send_to_chat_with_retry(pages[architect_name], auto_reply, platform=config.CHAT_PLATFORMS[architect_name])
                     print(f"[Orchestrator] Got follow-up response ({len(chat_response)} chars).")
                     current_payload = chat_response
+                    analysis = analyze_message(chat_response)
                 
                 phase = 2
                 next_recipient = "antigravity"
@@ -234,8 +270,6 @@ def run_bridge(initial_task: str):
                     "You are a coding agent. An expert architect has produced the following project brief and your first command. "
                     "Read the brief carefully to understand the vision, then execute ONLY the specific command given at the end. "
                     "When you have finished the step, report your progress clearly so the architect can give you the next step.\n\n"
-                    "IMPORTANT: To hand control back to the orchestrator, you MUST write your final response report to a file named "
-                    r"`d:\coding_files\kpautomate\bridge_response.txt`. You MUST use the `write_to_file` tool to create this file. DO NOT merely reply in the chat UI, or the automation loop will hang indefinitely. CREATE THE FILE!\n\n"
                     f"Architect's Instructions:\n{current_payload}"
                 )
                 
@@ -277,34 +311,44 @@ def run_bridge(initial_task: str):
                     save_checkpoint(turn, history_summary, phase, current_payload, next_recipient)
                     
                     if next_recipient == "chat":
-                        if turn > 0 and turn % 10 == 0:
-                            architect_name, critic_name = critic_name, architect_name
-                            print(f"\n[Rotation] Swapped roles! Architect is now {architect_name.upper()}, Critic is {critic_name.upper()}.")
-                            
+                        # Removed role rotation
                         print("Antigravity finished step. Running UI Critic check...")
                         
-                        critic_retry_count = chk.get("critic_retry_count", 0) if chk else 0
-                        
-                        # Refresh dev page and check errors
-                        try:
-                            dev_page.reload(wait_until="networkidle", timeout=10000)
-                        except Exception:
-                            pass
-                            
-                        new_errors = dev_server.get_new_errors()
-                        
-                        # Take screenshot
-                        try:
-                            screenshot_bytes = dev_page.screenshot(type="jpeg", quality=60)
-                            screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-                        except Exception as e:
-                            print(f"[Critic] Failed to take screenshot: {e}")
-                            screenshot_b64 = ""
-                            
-                        if config.CRITIC_TRIGGER == "error_or_bad_ui":
-                            critic_result = evaluate_ui(screenshot_b64, new_errors, critic_page=pages[critic_name], critic_platform=config.CHAT_PLATFORMS[critic_name])
-                        else:
+                        min_critic_turn = getattr(config, "MIN_CRITIC_TURN", 2)
+                        if turn < min_critic_turn:
+                            print(f"[Critic] Skipping evaluation (Turn {turn} < {min_critic_turn}). UI might not be ready yet.")
                             critic_result = {"verdict": "pass"}
+                        else:
+                            critic_retry_count = chk.get("critic_retry_count", 0) if chk else 0
+                            
+                            # Refresh dev page and check errors
+                            try:
+                                dev_page.reload(wait_until="networkidle", timeout=10000)
+                            except Exception:
+                                pass
+                                
+                            new_dev_errors = dev_server.get_new_errors()
+                            
+                            # Get browser console errors and clear the buffer
+                            browser_errs_str = "\n".join(browser_console_errors)
+                            browser_console_errors.clear()
+                            
+                            combined_errors = ""
+                            if new_dev_errors: combined_errors += f"Dev Server Errors:\n{new_dev_errors}\n"
+                            if browser_errs_str: combined_errors += f"Browser Console Errors:\n{browser_errs_str}\n"
+                            
+                            # Check if the page is literally an error page
+                            page_title = dev_page.title()
+                            if "error" in page_title.lower() or "refused" in page_title.lower():
+                                combined_errors += f"Browser says: {page_title}\n"
+                                
+                            # Capture page context (screenshot + DOM)
+                            screenshot_b64, screenshot_bytes, dom_summary = capture_page_context(dev_page)
+                                
+                            if config.CRITIC_TRIGGER == "error_or_bad_ui":
+                                critic_result = evaluate_ui(screenshot_b64, screenshot_bytes, dom_summary, combined_errors, critic_page=pages[critic_name], critic_platform=config.CHAT_PLATFORMS[critic_name])
+                            else:
+                                critic_result = {"verdict": "pass"}
                         
                         if critic_result.get("verdict") == "fix_needed":
                             critic_retry_count += 1
@@ -347,21 +391,17 @@ def run_bridge(initial_task: str):
                         
                         # Check if Claude is asking a question instead of giving a command
                         for _ in range(3):
-                            lower = current_payload.lower()
-                            ends_with_question = lower.rstrip().endswith("?")
-                            question_phrases = ["sound good", "do you want", "what do you think", 
-                                               "should we", "do you prefer", "what's your",
-                                               "worth confirming", "or do you want to", "one open question",
-                                               "before we proceed", "before moving on"]
-                            is_discussion = ends_with_question and any(p in lower for p in question_phrases)
-                            
-                            if not is_discussion:
+                            if not _is_question_response(current_payload, analysis):
                                 break
                             
                             print("[Orchestrator] Claude asked a question mid-loop. Auto-replying to keep flow moving...")
-                            auto_reply = "Proceed with your best judgment. Give the next concrete, executable command for the coding agent."
+                            auto_reply = (
+                                "Do NOT ask questions. You are in a fully automated pipeline. "
+                                "Make your best decision and give the next concrete, executable command for the coding agent."
+                            )
                             chat_response = _send_to_chat_with_retry(pages[architect_name], auto_reply, platform=config.CHAT_PLATFORMS[architect_name])
                             current_payload = chat_response
+                            analysis = analyze_message(chat_response)
                         
                         next_recipient = "antigravity"
                         
@@ -369,12 +409,8 @@ def run_bridge(initial_task: str):
                         print("Forwarding payload to Antigravity...")
                         ag_win.set_focus()
                         
-                        # Wrap the payload with the instruction to write the response file
-                        ag_prompt = (
-                            f"{current_payload}\n\n"
-                            "IMPORTANT: To hand control back to the orchestrator, you MUST write your final response report to a file named "
-                            r"`d:\coding_files\kpautomate\bridge_response.txt`. You MUST use the `write_to_file` tool to create this file. DO NOT merely reply in the chat UI, or the automation loop will hang indefinitely. CREATE THE FILE!"
-                        )
+                        # Just forward the payload to Antigravity directly
+                        ag_prompt = f"{current_payload}"
                         
                         send_to_antigravity(ag_win, ag_prompt)
                         ag_response = wait_for_antigravity_response(ag_win)

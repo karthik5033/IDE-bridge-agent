@@ -249,8 +249,16 @@ def send_to_antigravity(win, text: str):
         pyautogui.hotkey('ctrl', 'v')
         time.sleep(1.5)
 
-        # Send the message
+        # Send the message (Send both Enter and Ctrl+Enter to handle multi-line inputs)
         pyautogui.press('enter')
+        time.sleep(0.5)
+        pyautogui.hotkey('ctrl', 'enter')
+        
+        # Also try to click the send button slightly above the input box as a fallback
+        # The send button is usually at the bottom right of the input box
+        send_btn_x = rect.right - 60
+        send_btn_y = rect.bottom - 110
+        pyautogui.click(send_btn_x, send_btn_y)
 
         _last_sent_instruction = text
         print("[Antigravity] Instruction sent.")

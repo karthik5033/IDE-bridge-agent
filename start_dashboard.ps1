@@ -7,7 +7,7 @@ Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
 Write-Host "[1/2] Starting FastAPI Backend on port 8000..." -ForegroundColor Yellow
-Start-Process "uvicorn" -ArgumentList "api_server:app --host 127.0.0.1 --port 8000" -PassThru
+Start-Process "python" -ArgumentList "-m uvicorn api_server:app --host 127.0.0.1 --port 8000" -PassThru
 
 Write-Host "[2/2] Starting Next.js Frontend on port 4000..." -ForegroundColor Yellow
 Set-Location -Path .\bridge_web

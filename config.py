@@ -5,7 +5,7 @@ STOP_REQUESTED = False
 OLLAMA_MODELS = {
     "orchestrator": "qwen2.5",         # signal detection, phase tagging
     "code_analyzer": "qwen2.5-coder:latest",  # error analysis, code review
-    "local_critic": "qwen3-vl:8b",        # fallback vision critic (when ChatGPT unavailable)
+    "ui_critic": "qwen3-vl:8b",        # fallback vision critic (when ChatGPT unavailable)
 }
 OLLAMA_URL = "http://localhost:11434/api/generate"
 CHROME_CDP_URL = "http://localhost:9222"   # Chrome remote debugging port
@@ -30,6 +30,14 @@ HUMAN_DELAY_MIN = 1.0        # minimum random delay before sending (anti-bot)
 HUMAN_DELAY_MAX = 3.0        # maximum random delay before sending (anti-bot)
 
 MAX_TURNS = 40
+MIN_CRITIC_TURN = 2          # turns to wait before firing critic
+CRITIC_DOM_MAX_DEPTH = 5     # max depth for DOM summary extraction
+
+# --- Page Explorer ---
+EXPLORER_MAX_SCREENSHOTS = 8  # total screenshots to capture
+EXPLORER_MAX_ROUTES = 4       # max internal routes to visit
+EXPLORER_MAX_INTERACTIONS = 3 # max interactive elements to click per page
+
 STOP_TOKEN = "DONE"
 
 # --- FILL THIS IN ---

@@ -51,9 +51,24 @@ def analyze_message(text: str, system: str = ORCHESTRATOR_SYSTEM) -> dict:
                 actual_is_error = False
 
         # Ensure fallback fields
+        # Detect if the AI is asking a question instead of giving a command
+        is_question = bool(parsed.get("is_question", False))
+        # Heuristic fallback: catch common question patterns the LLM might miss
+        question_patterns = [
+            "which do you prefer", "would you like", "should i", "do you want",
+            "continue or start", "option 1", "option 2", "select one",
+            "choose from", "pick one", "what would you", "shall i",
+            "before i proceed", "before we begin", "quick check",
+            "is this task a continuation"
+        ]
+        text_lower = text.lower()
+        if any(pat in text_lower for pat in question_patterns):
+            is_question = True
+
         return {
             "is_done": actual_is_done,
             "is_error": actual_is_error,
+            "is_question": is_question,
             "phase_tag": str(parsed.get("phase_tag", "Unknown"))
         }
         
@@ -61,11 +76,12 @@ def analyze_message(text: str, system: str = ORCHESTRATOR_SYSTEM) -> dict:
         print(f"[Orchestrator] Failed to parse JSON from model: {e}")
         return default_result
     except Exception as e:
-        print(f"[Orchestrator] Error calling Ollama: {e}")
         # We don't want to crash the whole bridge if analysis fails, just return defaults
-        # But we do want to notify if it's completely down.
         if "Connection" in str(e) or "404" in str(e):
-             notify_phone(f"Orchestrator failed to call Ollama: {e}", "Bridge Error")
+             # Silently degrade if Ollama is not running to avoid spamming the console
+             pass
+        else:
+             print(f"[Orchestrator] Error calling Ollama: {e}")
         return default_result
 
 def summarize_error(error_text: str) -> str:
@@ -99,6 +115,8 @@ def summarize_error(error_text: str) -> str:
         print(f"[Orchestrator] Summary generated:\n{summary}")
         return summary
     except Exception as e:
+        if "Connection" in str(e) or "404" in str(e):
+            return f"Error detected, but couldn't summarize because Ollama is down.\n\nRaw error snippet:\n{truncated_text[-500:]}"
         print(f"[Orchestrator] Error summarizing error trace: {e}")
         return f"Error detected, but failed to summarize: {e}\n\nRaw error snippet:\n{truncated_text[-500:]}"
 
@@ -125,5 +143,8 @@ def compress_history(history: str) -> str:
         print(f"[Orchestrator] History compressed to {len(compressed)} chars.")
         return compressed
     except Exception as e:
-        print(f"[Orchestrator] Error compressing history: {e}")
+        if "Connection" in str(e) or "404" in str(e):
+            pass
+        else:
+            print(f"[Orchestrator] Error compressing history: {e}")
         return history # Return original on failure
