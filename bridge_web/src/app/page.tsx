@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Play, Square, Send, Activity, Bot, Code, MonitorPlay, Loader2 } from "lucide-react";
+import { Play, Square, Activity, Bot, Code, MonitorPlay, Loader2, Eraser, AlertOctagon, Send, ChevronDown } from "lucide-react";
 
 type LogEvent = {
   id: number;
@@ -24,6 +22,11 @@ export default function Dashboard() {
   const [initialTask, setInitialTask] = useState("");
   const [agentState, setAgentState] = useState<AgentState>("idle");
   const [activePanel, setActivePanel] = useState<string | null>(null);
+  const [hasStarted, setHasStarted] = useState(false);
+  
+  const [models, setModels] = useState<string[]>([]);
+  const [activeModel, setActiveModel] = useState<string>("");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   
   const wsRef = useRef<WebSocket | null>(null);
   
@@ -36,47 +39,78 @@ export default function Dashboard() {
   
   const logIdCounter = useRef(0);
 
+  // Fetch Models
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:8000/ws/stream");
-    
-    ws.onopen = () => setIsConnected(true);
-    ws.onclose = () => setIsConnected(false);
-    
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === "log") {
-        const msg = data.data.message;
-        const logObj = { id: logIdCounter.current++, message: msg };
-        
-        if (msg.includes("[System] Agent gracefully stopped.")) {
-          setAgentState("idle");
-        }
-
-        // Log Routing Logic — also track which panel is currently active
-        if (msg.includes("[Antigravity]")) {
-          setAntigravityLogs(prev => [...prev, logObj]);
-          setActivePanel("antigravity");
-        } else if (msg.includes("[Critic]") || msg.toLowerCase().includes("chatgpt")) {
-          setChatgptLogs(prev => [...prev, logObj]);
-          setActivePanel("chatgpt");
-        } else if (msg.includes("Chat UI") || msg.includes("Phase 1:") || msg.toLowerCase().includes("claude") || msg.includes("[Orchestrator]")) {
-          setClaudeLogs(prev => [...prev, logObj]);
-          setActivePanel("claude");
+    fetch("http://localhost:8000/api/models")
+      .then(res => res.json())
+      .then(data => {
+        if (data.models && data.models.length > 0) {
+          setModels(data.models);
         } else {
-          setSystemLogs(prev => [...prev, logObj]);
-          setActivePanel("system");
+          setModels(["No Models Found"]);
         }
-      } else if (data.type === "input_required") {
-        setActivePrompt(data.data.prompt);
-      }
-    };
-    
-    wsRef.current = ws;
-    
-    return () => ws.close();
+        if (data.active) setActiveModel(data.active);
+      })
+      .catch(err => {
+        console.error("Fetch models failed:", err);
+        setModels(["API Offline"]);
+      });
   }, []);
 
-  // Auto-scroll effect for all panels
+  useEffect(() => {
+    let reconnectTimer: NodeJS.Timeout;
+    
+    const connect = () => {
+      const ws = new WebSocket("ws://localhost:8000/ws/stream");
+      
+      ws.onopen = () => setIsConnected(true);
+      
+      ws.onclose = () => {
+        setIsConnected(false);
+        reconnectTimer = setTimeout(connect, 2000);
+      };
+      
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === "log") {
+          const msg = data.data.message;
+          const logObj = { id: logIdCounter.current++, message: msg };
+          
+          if (msg.includes("[System] Agent gracefully stopped.")) {
+            setAgentState("idle");
+          }
+  
+          // Log Routing Logic
+          if (msg.includes("[Antigravity]")) {
+            setAntigravityLogs(prev => [...prev, logObj]);
+            setActivePanel("antigravity");
+          } else if (msg.includes("[Critic]") || msg.toLowerCase().includes("chatgpt")) {
+            setChatgptLogs(prev => [...prev, logObj]);
+            setActivePanel("chatgpt");
+          } else if (msg.includes("Chat UI") || msg.includes("Phase 1:") || msg.toLowerCase().includes("claude") || msg.includes("[Orchestrator]")) {
+            setClaudeLogs(prev => [...prev, logObj]);
+            setActivePanel("claude");
+          } else {
+            setSystemLogs(prev => [...prev, logObj]);
+            setActivePanel("system");
+          }
+        } else if (data.type === "input_required") {
+          setActivePrompt(data.data.prompt);
+        }
+      };
+      
+      wsRef.current = ws;
+    };
+
+    connect();
+    
+    return () => {
+      clearTimeout(reconnectTimer);
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, []);
+
+  // Auto-scroll effect for vertical logs
   useEffect(() => {
     Object.values(scrollRefs).forEach(ref => {
       if (ref.current) {
@@ -85,9 +119,31 @@ export default function Dashboard() {
     });
   }, [antigravityLogs, claudeLogs, chatgptLogs, systemLogs, activePrompt]);
 
+  // Auto-center horizontal slider to active panel
+  useEffect(() => {
+    if (activePanel) {
+      const container = document.getElementById("panels-container");
+      const el = document.getElementById(`panel-${activePanel}`);
+      if (container && el) {
+        const scrollLeft = el.offsetLeft - container.offsetWidth / 2 + el.offsetWidth / 2;
+        container.scrollTo({ left: scrollLeft, behavior: "smooth" });
+      }
+    }
+  }, [activePanel]);
+
+  const clearLogs = () => {
+    setAntigravityLogs([]);
+    setClaudeLogs([]);
+    setChatgptLogs([]);
+    setSystemLogs([]);
+    setActivePanel(null);
+    setHasStarted(false);
+  };
+
   const handleStart = async () => {
     if (!initialTask) return;
     setAgentState("running");
+    setHasStarted(true);
     try {
       const res = await fetch("http://localhost:8000/api/start", {
         method: "POST",
@@ -108,8 +164,7 @@ export default function Dashboard() {
     try {
       await fetch("http://localhost:8000/api/stop", { method: "POST" });
       setSystemLogs(prev => [...prev, { id: logIdCounter.current++, message: "[System] Stop signal sent. Waiting for agent to halt..." }]);
-      // Fallback: if the backend never emits the stopped signal (e.g. thread already crashed),
-      // force reset to idle after 5 seconds
+      
       setTimeout(() => {
         setAgentState(prev => {
           if (prev === "stopping") {
@@ -120,8 +175,21 @@ export default function Dashboard() {
         });
       }, 5000);
     } catch (error) {
-      console.error(error);
+      console.warn("Failed to reach backend:", error);
       setAgentState("idle");
+    }
+  };
+
+  const handleModelChange = async (newModel: string) => {
+    setActiveModel(newModel);
+    try {
+      await fetch("http://localhost:8000/api/models/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_name: newModel })
+      });
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -136,132 +204,230 @@ export default function Dashboard() {
   const LogPanel = ({ title, icon: Icon, logs, scrollRefKey, panelKey }: any) => {
     const isActive = activePanel === panelKey;
     return (
-    <div className={`flex flex-col border-r border-b overflow-hidden h-full min-h-0 transition-all duration-300 ${
-      isActive 
-        ? 'border-l-2 border-l-emerald-500 bg-emerald-50/30 dark:bg-emerald-950/10 border-zinc-200 dark:border-zinc-800' 
-        : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950'
-    }`}>
-      <div className={`flex items-center gap-2 px-3 py-2 border-b transition-colors duration-300 ${
+      <div id={`panel-${panelKey}`} className={`shrink-0 w-[85vw] sm:w-[480px] h-[340px] flex flex-col rounded-2xl overflow-hidden transition-all duration-300 snap-center shadow-2xl ${
         isActive 
-          ? 'bg-emerald-100/60 dark:bg-emerald-900/20 border-zinc-200 dark:border-zinc-800' 
-          : 'bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800'
+          ? 'ring-2 ring-[#E9D9B9]/60 bg-[#2C2B29] scale-[1.02]' 
+          : 'bg-[#2A2927] hover:bg-[#2C2B29] border border-[#3A3937] scale-100 opacity-90 hover:opacity-100'
       }`}>
-        <Icon size={14} className={isActive ? 'text-emerald-600' : 'text-zinc-500'} />
-        <span className={`text-xs font-semibold uppercase tracking-wider ${isActive ? 'text-emerald-700 dark:text-emerald-400' : 'text-zinc-700 dark:text-zinc-300'}`}>{title}</span>
-        {isActive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse ml-auto" />}
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-[#3A3937]/50 bg-[#242321]/30">
+          <Icon size={16} className={isActive ? 'text-[#E9D9B9]' : 'text-[#8A8987]'} />
+          <span className={`text-xs font-semibold uppercase tracking-wider ${isActive ? 'text-[#E9D9B9]' : 'text-[#8A8987]'}`}>{title}</span>
+          {isActive && <span className="w-1.5 h-1.5 rounded-full bg-[#E9D9B9] animate-pulse ml-auto shadow-[0_0_8px_rgba(233,217,185,0.8)]" />}
+        </div>
+        <div className="flex-1 p-5 font-mono text-[13px] leading-relaxed overflow-y-auto" ref={scrollRefs[scrollRefKey as keyof typeof scrollRefs]}>
+          {logs.length === 0 ? (
+            <div className="text-[#6A6967] mt-2 italic flex items-center justify-center h-full opacity-50">Waiting for logs...</div>
+          ) : (
+            logs.map((log: LogEvent) => (
+              <div 
+                key={log.id}
+                className={`mb-3 break-words ${
+                  log.message.includes('Error') || log.message.includes('Exception') || log.message.includes('fail') 
+                    ? 'text-[#DA8769] font-medium' 
+                    : 'text-[#C5BDB0]'
+                }`}
+              >
+                {log.message}
+              </div>
+            ))
+          )}
+        </div>
       </div>
-      <div className="flex-1 p-3 font-mono text-[12px] leading-relaxed overflow-y-auto" ref={scrollRefs[scrollRefKey as keyof typeof scrollRefs]}>
-        {logs.length === 0 ? (
-          <div className="text-zinc-400 opacity-50 mt-2">Waiting for logs...</div>
-        ) : (
-          logs.map((log: LogEvent) => (
-            <div 
-              key={log.id}
-              className={`mb-2 break-words ${
-                log.message.includes('Error') || log.message.includes('Exception') || log.message.includes('fail') 
-                  ? 'text-red-600 dark:text-red-400 font-medium' 
-                  : 'text-zinc-800 dark:text-zinc-300'
-              }`}
-            >
-              {log.message}
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
+    );
   };
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-50 font-sans flex flex-col">
-      
-      {/* Top Header & Command Bar */}
-      <header className="flex items-center justify-between px-4 py-3 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 z-10 shrink-0">
-        <div className="flex items-center gap-6 flex-1">
-          <div className="flex items-center gap-2">
-            <Activity size={18} className="text-zinc-900 dark:text-white" />
-            <h1 className="text-sm font-bold tracking-tight">Antigravity Bridge</h1>
-            <div className={`w-1.5 h-1.5 rounded-full ml-2 mr-1 ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-xs text-zinc-500">{isConnected ? "Connected" : "Disconnected"}</span>
+    <div className="h-screen w-screen overflow-hidden bg-[#242321] text-[#E6DED0] font-sans flex flex-col selection:bg-[#E9D9B9] selection:text-[#242321]">
+      {/* Main Content Area */}
+      <div className={`flex-1 flex flex-col items-center px-4 w-full max-w-4xl mx-auto min-h-0 overflow-y-auto hide-scrollbar transition-all duration-700 ease-in-out ${
+        hasStarted ? "justify-start pt-[8vh] pb-8" : "justify-center"
+      }`}>
+        
+        {/* Title (Collapses when running) */}
+        <div className={`flex items-center gap-3 transition-all duration-700 ease-in-out overflow-hidden cursor-default ${
+          hasStarted ? "h-0 opacity-0 mb-0 scale-95 pointer-events-none mt-0" : "h-[40px] opacity-100 mb-8 mt-4 scale-100"
+        }`}>
+          <div className="text-[#DA8769] flex items-center justify-center">
+            {/* Custom Sunburst SVG */}
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="animate-[spin_20s_linear_infinite]">
+              <path d="M12 2v20M4.93 4.93l14.14 14.14M2 12h20M4.93 19.07L19.07 4.93" />
+            </svg>
           </div>
+          <h1 className="text-3xl md:text-4xl tracking-tight" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>Antigravity Bridge</h1>
+        </div>
 
-          <div className="flex items-center w-full max-w-xl">
-            <Input 
+        {/* Input Container */}
+        <div className={`w-full bg-[#2A2927]/90 backdrop-blur-md shadow-2xl border transition-all duration-700 focus-within:border-[#6A6967] ${
+          hasStarted ? "rounded-2xl p-2 border-[#3A3937]/50 max-w-3xl" : "rounded-[2rem] p-3 border-[#3A3937] hover:border-[#4A4947]"
+        }`}>
+          <div className="flex items-center gap-3 px-3 py-2">
+            <span className="text-[#8A8987] ml-2 text-2xl font-light cursor-pointer hover:text-[#E6DED0] transition-colors">+</span>
+            <input 
               value={initialTask}
               onChange={(e) => setInitialTask(e.target.value)}
-              placeholder="Enter initial task..."
-              className="h-8 text-xs bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 rounded-sm rounded-r-none focus-visible:ring-0 focus-visible:border-zinc-400"
+              placeholder="How can I help you today?"
+              className="flex-1 bg-transparent border-none focus:outline-none text-[1.1rem] text-[#E6DED0] placeholder-[#6A6967] h-12 ml-2"
               disabled={agentState !== "idle"}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && initialTask && agentState === 'idle') {
+                  handleStart();
+                }
+              }}
             />
-            {agentState === "idle" && (
-              <Button onClick={handleStart} className="h-8 px-4 rounded-sm rounded-l-none bg-black hover:bg-zinc-800 text-white text-xs whitespace-nowrap">
-                <Play size={12} className="mr-1.5" /> Start Agent
-              </Button>
-            )}
-            {agentState === "running" && (
-              <Button onClick={handleStop} variant="destructive" className="h-8 px-4 rounded-sm rounded-l-none text-xs whitespace-nowrap">
-                <Square size={12} className="mr-1.5" /> Stop Agent
-              </Button>
-            )}
-            {agentState === "stopping" && (
-              <Button disabled variant="outline" className="h-8 px-4 rounded-sm rounded-l-none text-xs border-zinc-200 text-zinc-500 whitespace-nowrap">
-                <Loader2 size={12} className="mr-1.5 animate-spin" /> Stopping...
-              </Button>
-            )}
+            {/* Custom Model Dropdown */}
+            <div className="relative mr-2">
+              <div 
+                onClick={() => agentState === 'idle' && setIsDropdownOpen(!isDropdownOpen)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors cursor-pointer border border-[#4A4947] ${
+                  agentState !== 'idle' ? 'opacity-50 cursor-not-allowed bg-[#3A3937]/20' : 'bg-[#3A3937]/40 hover:bg-[#3A3937]/80'
+                }`}
+              >
+                <span className="text-xs text-[#D6CEBF] font-medium min-w-[80px] text-right">
+                  {models.length === 0 ? "Loading..." : activeModel}
+                </span>
+                <ChevronDown size={14} className="text-[#A6A095]" />
+              </div>
+              
+              {isDropdownOpen && models.length > 0 && agentState === 'idle' && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsDropdownOpen(false)} />
+                  <div className="absolute top-full mt-2 right-0 bg-[#2A2927] border border-[#4A4947] rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.5)] py-1.5 z-50 min-w-[160px] animate-in fade-in zoom-in-95 duration-100">
+                    {models.map(m => (
+                      <div 
+                        key={m} 
+                        onClick={() => {
+                          handleModelChange(m);
+                          setIsDropdownOpen(false);
+                        }}
+                        className={`px-4 py-2.5 text-sm cursor-pointer transition-colors mx-1.5 rounded-md ${
+                          activeModel === m 
+                            ? 'bg-[#3A3937] text-[#E9D9B9] font-medium' 
+                            : 'text-[#C5BDB0] hover:bg-[#3A3937]/60 hover:text-white'
+                        }`}
+                      >
+                        {m}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Send Button */}
+            <button 
+              onClick={handleStart}
+              disabled={!initialTask || agentState !== 'idle'}
+              className="flex items-center justify-center w-10 h-10 rounded-xl bg-[#E9D9B9] text-[#242321] hover:bg-white disabled:opacity-50 disabled:bg-[#3A3937] disabled:text-[#8A8987] transition-colors ml-1"
+            >
+              <Send size={18} className={initialTask && agentState === 'idle' ? 'ml-0.5' : ''} />
+            </button>
           </div>
         </div>
 
-        {/* Active Prompt Alert Top Right */}
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center justify-center gap-3 mt-8 pb-4">
+          {agentState === "idle" ? (
+            <button onClick={handleStart} className="flex items-center gap-2 px-5 py-2.5 bg-[#363533] hover:bg-[#464543] rounded-full text-sm font-medium transition-colors border border-[#4A4947] shadow-sm">
+              <Play size={14} className="text-[#A6A095]" /> Start Agent
+            </button>
+          ) : agentState === "running" ? (
+            <button onClick={handleStop} className="flex items-center gap-2 px-5 py-2.5 bg-[#DA8769]/10 hover:bg-[#DA8769]/20 text-[#DA8769] rounded-full text-sm font-medium transition-colors border border-[#DA8769]/30 shadow-sm">
+              <Square size={14} className="fill-current" /> Stop Agent
+            </button>
+          ) : (
+            <button disabled className="flex items-center gap-2 px-5 py-2.5 bg-[#363533] rounded-full text-sm font-medium opacity-50 border border-[#4A4947]">
+              <Loader2 size={14} className="animate-spin" /> Stopping...
+            </button>
+          )}
+
+          <button onClick={clearLogs} className="flex items-center gap-2 px-5 py-2.5 bg-[#363533] hover:bg-[#464543] rounded-full text-sm font-medium transition-colors border border-[#4A4947] shadow-sm">
+            <Eraser size={14} className="text-[#A6A095]" /> Clear Logs
+          </button>
+
+          {agentState !== "idle" && (
+            <button onClick={handleStop} className="flex items-center gap-2 px-5 py-2.5 bg-[#363533] hover:bg-red-950/40 hover:text-red-400 rounded-full text-sm font-medium transition-colors border border-[#4A4947] shadow-sm text-[#A6A095]">
+              <AlertOctagon size={14} /> Force Stop
+            </button>
+          )}
+
+          <div className="ml-4 flex items-center gap-2 text-xs font-medium text-[#6A6967] uppercase tracking-widest px-4 py-2 rounded-full border border-[#3A3937]">
+            <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500/80 shadow-[0_0_6px_rgba(16,185,129,0.5)]' : 'bg-red-500/80'}`} />
+            {isConnected ? 'Live' : 'Offline'}
+          </div>
+        </div>
+
+        {/* Active Prompt Response Input */}
         {activePrompt && (
-          <div className="flex items-center gap-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800/50 px-3 py-1.5 rounded-sm shadow-sm shrink-0 ml-4">
-            <div className="flex items-center gap-2 border-r border-yellow-200 dark:border-yellow-800 pr-3">
-              <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
-              <span className="text-xs font-semibold text-yellow-800 dark:text-yellow-400 max-w-[200px] truncate" title={activePrompt}>{activePrompt}</span>
+          <div className="mt-8 w-full max-w-2xl bg-[#E9D9B9]/5 border border-[#E9D9B9]/20 rounded-2xl p-5 flex flex-col gap-4 shadow-xl backdrop-blur-sm animate-in fade-in slide-in-from-bottom-4">
+            <div className="flex items-center gap-3">
+              <span className="w-2 h-2 rounded-full bg-[#E9D9B9] animate-pulse shadow-[0_0_8px_rgba(233,217,185,0.6)]" />
+              <span className="text-sm font-medium text-[#E9D9B9]">{activePrompt}</span>
             </div>
-            <div className="flex gap-1.5 pl-1">
+            <div className="flex gap-2">
               {activePrompt.toLowerCase().includes("(y/n)") ? (
                 <>
-                  <Button onClick={() => { 
+                  <button onClick={() => { 
                     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                       wsRef.current.send(JSON.stringify({ type: "input_response", value: "y" }));
                       setActivePrompt(null);
                     }
-                  }} size="sm" className="bg-zinc-900 hover:bg-black text-white h-7 px-3 text-xs rounded-sm">Yes</Button>
-                  <Button onClick={() => { 
+                  }} className="bg-[#E9D9B9] text-[#242321] hover:bg-white px-8 py-2.5 rounded-xl text-sm font-semibold transition-colors">Yes</button>
+                  <button onClick={() => { 
                     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                       wsRef.current.send(JSON.stringify({ type: "input_response", value: "n" }));
                       setActivePrompt(null);
                     }
-                  }} size="sm" variant="outline" className="h-7 px-3 text-xs rounded-sm border-yellow-300 text-yellow-800 hover:bg-yellow-100">No</Button>
+                  }} className="border border-[#E9D9B9]/40 text-[#E9D9B9] hover:bg-[#E9D9B9]/10 px-8 py-2.5 rounded-xl text-sm font-semibold transition-colors">No</button>
                 </>
               ) : (
                 <>
-                  <Input 
+                  <input 
                     value={promptResponse}
                     onChange={(e) => setPromptResponse(e.target.value)}
                     placeholder="Type response..."
-                    className="w-48 h-7 text-xs bg-white dark:bg-black border-yellow-200 focus-visible:ring-yellow-500 rounded-sm"
+                    className="flex-1 bg-[#2A2927] border border-[#4A4947] focus:border-[#E9D9B9]/60 outline-none text-[#E6DED0] px-4 rounded-xl text-sm transition-colors"
                     onKeyDown={(e) => e.key === 'Enter' && handlePromptSubmit()}
                     autoFocus
                   />
-                  <Button onClick={handlePromptSubmit} size="sm" className="bg-zinc-900 hover:bg-black text-white h-7 px-3 text-xs rounded-sm">
+                  <button onClick={handlePromptSubmit} className="bg-[#E9D9B9] text-[#242321] hover:bg-white px-8 py-2.5 rounded-xl text-sm font-semibold transition-colors">
                     Send
-                  </Button>
+                  </button>
                 </>
               )}
             </div>
           </div>
         )}
-      </header>
 
-      {/* 4-Panel Grid Fill */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 grid-rows-2 min-h-0">
-        <LogPanel title="Antigravity (Local Builder)" icon={Code} logs={antigravityLogs} scrollRefKey="antigravity" panelKey="antigravity" />
-        <LogPanel title="Claude (Architect)" icon={Bot} logs={claudeLogs} scrollRefKey="claude" panelKey="claude" />
-        <LogPanel title="ChatGPT (Critic)" icon={Activity} logs={chatgptLogs} scrollRefKey="chatgpt" panelKey="chatgpt" />
-        <LogPanel title="Webpage Inspector & System" icon={MonitorPlay} logs={systemLogs} scrollRefKey="system" panelKey="system" />
       </div>
 
+      {/* Horizontal Slideshow Logs */}
+      <div id="panels-container" className={`w-full overflow-x-auto px-6 sm:px-12 snap-x snap-mandatory hide-scrollbar shrink-0 transition-all duration-700 ease-in-out ${
+        hasStarted ? "opacity-100 pb-12 pt-6 translate-y-0 h-auto max-h-[500px]" : "opacity-0 translate-y-10 h-0 overflow-hidden pointer-events-none"
+      }`}>
+        <div className="flex gap-6 min-w-max">
+          {/* Invisible spacer for padding start */}
+          <div className="w-[calc(50vw-250px)] shrink-0" />
+          
+          <LogPanel title="Antigravity (Local Builder)" icon={Code} logs={antigravityLogs} scrollRefKey="antigravity" panelKey="antigravity" />
+          <LogPanel title="Claude (Architect)" icon={Bot} logs={claudeLogs} scrollRefKey="claude" panelKey="claude" />
+          <LogPanel title="ChatGPT (Critic)" icon={Activity} logs={chatgptLogs} scrollRefKey="chatgpt" panelKey="chatgpt" />
+          <LogPanel title="Webpage Inspector & System" icon={MonitorPlay} logs={systemLogs} scrollRefKey="system" panelKey="system" />
+          
+          {/* Invisible spacer for padding end */}
+          <div className="w-[calc(50vw-250px)] shrink-0" />
+        </div>
+      </div>
+      
+      {/* Hide Scrollbar Style */}
+      <style dangerouslySetInnerHTML={{__html: `
+        .hide-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .hide-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}} />
     </div>
   );
 }

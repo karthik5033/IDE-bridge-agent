@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 import asyncio
+import requests
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -64,6 +65,30 @@ async def websocket_endpoint(websocket: WebSocket):
 
 class StartRequest(BaseModel):
     task: str
+
+@app.get("/api/models")
+def get_models():
+    try:
+        session = requests.Session()
+        session.mount('http://', requests.adapters.HTTPAdapter(max_retries=0))
+        resp = session.get("http://localhost:11434/api/tags", timeout=1)
+        resp.raise_for_status()
+        data = resp.json()
+        models = [m["name"] for m in data.get("models", [])]
+        return {"models": models, "active": config.OLLAMA_MODELS["orchestrator"]}
+    except Exception as e:
+        fallback_models = [config.OLLAMA_MODELS["orchestrator"], "llama3.1:8b", "mistral:7b"]
+        # Ensure unique in case orchestrator is one of the fallback models
+        fallback_models = list(dict.fromkeys(fallback_models))
+        return {"models": fallback_models, "active": config.OLLAMA_MODELS["orchestrator"], "error": str(e)}
+
+class ModelRequest(BaseModel):
+    model_name: str
+
+@app.post("/api/models/active")
+def set_active_model(req: ModelRequest):
+    config.OLLAMA_MODELS["orchestrator"] = req.model_name
+    return {"status": "success", "active": req.model_name}
 
 active_thread = None
 
