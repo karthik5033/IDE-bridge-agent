@@ -26,31 +26,8 @@ def _is_question_response(text: str, analysis: dict = None) -> bool:
     if analysis and analysis.get("is_question"):
         return True
     
-    lower = text.lower()
-    
-    # Check for numbered option lists (1. ... 2. ...)
-    import re
-    if re.search(r'\n\s*[12]\s*[\.\)\:]\s+', text):
-        # Has numbered options AND some question-like phrasing
-        option_phrases = ["option", "choose", "prefer", "select", "which", "want to",
-                         "continue", "start fresh", "from scratch", "or do you"]
-        if any(p in lower for p in option_phrases):
-            return True
-    
-    # Check for direct question patterns (don't require ? at end)
-    question_patterns = [
-        "sound good", "do you want", "what do you think", "should we",
-        "do you prefer", "what's your", "before we start", "before we begin",
-        "worth confirming", "happy to go with", "before scaffolding",
-        "or do you want to", "one open question", "before we proceed",
-        "before moving on", "quick check", "is this task a continuation",
-        "shall i", "should i", "would you like", "let me know",
-        "before i proceed", "before i lay out", "before i start",
-        "continue existing", "start a brand new", "which approach",
-    ]
-    if any(p in lower for p in question_patterns):
-        return True
-    
+    # Rely purely on the orchestrator's LLM analysis (which uses chain-of-thought).
+    # Brittle regex/substring fallbacks here were causing major false positives on project briefs.
     return False
 
 
@@ -87,16 +64,22 @@ def _send_to_chat_with_retry(page, text: str, platform: dict = None) -> str:
 
 
 def run_bridge(initial_task: str):
-    """Main bridge loop implementing Phase 1, Phase 2, and Phase 3 state machine."""
+    """Main bridge loop: Brief → Build → Critic fix loop.
+    
+    Phase 1: Claude produces a comprehensive project brief (one shot).
+    Phase 2: Antigravity builds the entire app from the brief (one shot).
+    Phase 3: Critic evaluates → fixes go directly to Antigravity (no Claude).
+             Claude only re-enters if critic escalates after repeated failures.
+    """
     print("=" * 50)
     print("  Bridge Agent Starting")
     print("=" * 50)
 
+    config.STOP_REQUESTED = False
     config.check_config()
 
     try:
         ag_win = get_antigravity_window()
-        ag_win.set_focus()
     except Exception as e:
         print(f"Fatal: Could not resolve Antigravity window. {e}")
         notify_phone(f"Startup failed: {e}", "Bridge Error")
@@ -107,7 +90,7 @@ def run_bridge(initial_task: str):
     phase = 1
     history_summary = f"Initial Task: {initial_task}\n"
     current_payload = ""
-    next_recipient = "chat" # or "antigravity"
+    project_brief = ""  # Stored separately for re-use
 
     chk = load_checkpoint()
     start_fresh = False
@@ -119,7 +102,7 @@ def run_bridge(initial_task: str):
             phase = chk.get("phase", 1)
             history_summary = chk.get("history_summary", "")
             current_payload = chk.get("current_payload", "")
-            next_recipient = chk.get("next_recipient", "chat")
+            project_brief = chk.get("project_brief", "")
             print("Resuming from checkpoint...")
         else:
             print("Starting fresh...")
@@ -171,18 +154,20 @@ def run_bridge(initial_task: str):
                 if chatgpt_page:
                     break
             
+            needs_init = False
             if chatgpt_page:
                 if start_fresh:
                     print("Starting fresh... Navigating to New Chat for ChatGPT.")
                     chatgpt_page.goto(config.CHAT_PLATFORMS["chatgpt"]["url"], wait_until="domcontentloaded")
+                    needs_init = True
             else:
                 ctx = browser.contexts[0] if browser.contexts else browser.new_context()
                 chatgpt_page = ctx.new_page()
                 chatgpt_page.goto(config.CHAT_PLATFORMS["chatgpt"]["url"], wait_until="domcontentloaded")
-            print(f"ChatGPT critic tab ready: {chatgpt_page.url}")
+                needs_init = True
 
             # Initialize ChatGPT with design system and critic rules
-            if start_fresh:
+            if needs_init:
                 print("[Critic] Initializing ChatGPT with design system and critic rules...")
                 design_system = _load_design_library()
                 critic_init_prompt = config.load_prompt("chatgpt_critic_init.md", design_system=design_system)
@@ -216,234 +201,244 @@ def run_bridge(initial_task: str):
         exited_cleanly = False
 
         try:
-            # === Phase 1: Planning (Chat UI) ===
+            # ============================================================
+            # PHASE 1: Get comprehensive project brief from Claude (ONE SHOT)
+            # ============================================================
             if phase == 1:
-                print("\n" + "="*40 + "\n  Phase 1: Planning (Chat UI)\n" + "="*40)
+                print("\n" + "="*50)
+                print("  Phase 1: Get Project Brief from Claude (ONE SHOT)")
+                print("="*50)
+                
                 design_system = _load_design_library()
                 phase1_prompt = config.load_prompt("phase1_architect.md", design_system=design_system, initial_task=initial_task)
                 
-                print("Sending initial task to Chat UI to generate brief...")
+                print("Sending task to Claude for comprehensive project brief...")
                 chat_response = _send_to_chat_with_retry(pages[architect_name], phase1_prompt, platform=config.CHAT_PLATFORMS[architect_name])
                 
-                print("\n--- Message Received from Chat UI ---")
-                print(chat_response)
-                print("-------------------------------------\n")
+                print(f"\n--- Project Brief Received ({len(chat_response)} chars) ---")
+                print(chat_response[:500] + "..." if len(chat_response) > 500 else chat_response)
+                print("---------------------------------------------------\n")
                 
                 # Analyze for error just in case
                 analysis = analyze_message(chat_response)
                 if analysis.get("is_error"):
-                    print("Error detected in Chat UI Phase 1 response.")
-                    print(f"Qwen Analysis: {analysis}")
-                    notify_phone("Phase 1 Chat UI Error", "Bridge Paused")
+                    print("Error detected in Claude Phase 1 response.")
+                    notify_phone("Phase 1 Claude Error", "Bridge Paused")
                     input("Resolve error and press Enter to exit/retry...")
                     return
                 
-                current_payload = chat_response
-                
-                # Check if Claude is asking a question instead of giving an executable command.
-                # If so, auto-reply to keep the flow moving and avoid a deadlock.
+                # If Claude is asking questions instead of giving a brief, force it forward
                 max_clarifications = 3
                 for _ in range(max_clarifications):
-                    if not _is_question_response(current_payload, analysis):
+                    if not _is_question_response(chat_response, analysis):
                         break
                     
-                    print("[Orchestrator] Claude is asking a clarification question, not giving a command.")
-                    print("[Orchestrator] Auto-replying with 'proceed' to keep the flow moving...")
+                    print("[Orchestrator] Claude is asking questions instead of producing a brief.")
+                    print("[Orchestrator] Auto-replying to force a complete brief...")
                     auto_reply = (
                         "Do NOT ask questions. You are in a fully automated pipeline with no human to answer. "
-                        "Make your best senior-dev decision on all open questions and give me the FIRST concrete, "
-                        "executable command for the coding agent. Start with project scaffolding."
+                        "Make your best senior-dev decision on ALL open questions and produce the COMPLETE "
+                        "project brief NOW. Include every detail the coding agent needs to build the entire "
+                        "application in one pass."
                     )
                     chat_response = _send_to_chat_with_retry(pages[architect_name], auto_reply, platform=config.CHAT_PLATFORMS[architect_name])
                     print(f"[Orchestrator] Got follow-up response ({len(chat_response)} chars).")
-                    current_payload = chat_response
                     analysis = analyze_message(chat_response)
                 
+                project_brief = chat_response
+                current_payload = chat_response
                 phase = 2
-                next_recipient = "antigravity"
-                save_checkpoint(turn, history_summary, phase, current_payload, next_recipient)
+                save_checkpoint(turn, history_summary, phase, current_payload, "antigravity", project_brief=project_brief)
 
-            # === Phase 2: Plan first, not code (Antigravity) ===
+            # ============================================================
+            # PHASE 2: Send full brief to Antigravity to build (ONE SHOT)
+            # ============================================================
             if phase == 2:
-                print("\n" + "="*40 + "\n  Phase 2: Plan first (Antigravity)\n" + "="*40)
-                phase2_prompt = (
-                    "You are a coding agent. An expert architect has produced the following project brief and your first command. "
-                    "Read the brief carefully to understand the vision, then execute ONLY the specific command given at the end. "
-                    "When you have finished the step, report your progress clearly so the architect can give you the next step.\n\n"
-                    f"Architect's Instructions:\n{current_payload}"
-                )
+                print("\n" + "="*50)
+                print("  Phase 2: Antigravity Builds from Brief (ONE SHOT)")
+                print("="*50)
                 
-                print("Sending brief to Antigravity...")
+                phase2_prompt = config.load_prompt("phase2_builder.md", brief=project_brief or current_payload)
+                
+                print("Sending full project brief to Antigravity...")
                 ag_win.set_focus()
                 send_to_antigravity(ag_win, phase2_prompt)
                 ag_response = wait_for_antigravity_response(ag_win)
                 
-                print("\n--- Message Received from Antigravity ---")
-                print(ag_response)
-                print("-----------------------------------------\n")
+                print(f"\n--- Antigravity Build Report ({len(ag_response)} chars) ---")
+                print(ag_response[:500] + "..." if len(ag_response) > 500 else ag_response)
+                print("-----------------------------------------------------\n")
                 
                 analysis = analyze_message(ag_response)
                 if analysis.get("is_error"):
                     print("Error detected in Antigravity Phase 2 response.")
-                    print(f"Qwen Analysis: {analysis}")
                     notify_phone("Phase 2 Antigravity Error", "Bridge Paused")
                     input("Resolve error and press Enter to exit/retry...")
                     return
 
                 current_payload = ag_response
+                history_summary += f"\n--- Phase 2 (Antigravity Build) ---\n{ag_response[:500]}\n"
                 phase = 3
-                next_recipient = "chat"
-                save_checkpoint(turn, history_summary, phase, current_payload, next_recipient)
+                turn = 1  # Start critic loop at turn 1
+                save_checkpoint(turn, history_summary, phase, current_payload, "critic", project_brief=project_brief)
 
-
-            # === Phase 3: Review loop ===
+            # ============================================================
+            # PHASE 3: Critic evaluation + fix loop (Antigravity ↔ Critic)
+            # Claude only re-enters if critic escalates.
+            # ============================================================
             if phase == 3:
+                critic_retry_count = 0
+                escalation_count = 0
+                
                 while turn < config.MAX_TURNS:
                     if getattr(config, "STOP_REQUESTED", False):
                         print("\n[System] Stop requested! Gracefully pausing bridge...")
                         config.STOP_REQUESTED = False
-                        save_checkpoint(turn, history_summary, phase, current_payload, next_recipient)
+                        save_checkpoint(turn, history_summary, phase, current_payload, "critic", project_brief=project_brief)
                         print("[System] Agent gracefully stopped.")
                         break
 
-                    print(f"\n{'='*40}\n  Phase 3 (Turn {turn})\n{'='*40}")
+                    print(f"\n{'='*50}")
+                    print(f"  Phase 3: Critic Evaluation (Turn {turn})")
+                    print(f"{'='*50}")
                     
-                    save_checkpoint(turn, history_summary, phase, current_payload, next_recipient)
+                    save_checkpoint(turn, history_summary, phase, current_payload, "critic", project_brief=project_brief)
                     
-                    if next_recipient == "chat":
-                        # Removed role rotation
-                        print("Antigravity finished step. Running UI Critic check...")
-                        
-                        min_critic_turn = getattr(config, "MIN_CRITIC_TURN", 2)
-                        if turn < min_critic_turn:
-                            print(f"[Critic] Skipping evaluation (Turn {turn} < {min_critic_turn}). UI might not be ready yet.")
-                            critic_result = {"verdict": "pass"}
-                        else:
-                            critic_retry_count = chk.get("critic_retry_count", 0) if chk else 0
-                            
-                            # Refresh dev page and check errors
+                    # --- Run UI Critic ---
+                    min_critic_turn = getattr(config, "MIN_CRITIC_TURN", 1)
+                    if turn < min_critic_turn:
+                        print(f"[Critic] Skipping evaluation (Turn {turn} < {min_critic_turn}).")
+                        critic_result = {"verdict": "pass"}
+                    else:
+                        # Refresh dev page and check errors — navigate to
+                        # the base URL to re-establish a valid execution context
+                        # (explore_page may have left it on a different route
+                        # or in a destroyed state after navigations).
+                        try:
+                            dev_page.goto(
+                                f"http://localhost:{config.DEV_SERVER_PORT}",
+                                wait_until="networkidle",
+                                timeout=15000,
+                            )
+                        except Exception:
+                            # Fallback: try a plain reload
                             try:
                                 dev_page.reload(wait_until="networkidle", timeout=10000)
                             except Exception:
                                 pass
-                                
-                            new_dev_errors = dev_server.get_new_errors()
                             
-                            # Get browser console errors and clear the buffer
-                            browser_errs_str = "\n".join(browser_console_errors)
-                            browser_console_errors.clear()
-                            
-                            combined_errors = ""
-                            if new_dev_errors: combined_errors += f"Dev Server Errors:\n{new_dev_errors}\n"
-                            if browser_errs_str: combined_errors += f"Browser Console Errors:\n{browser_errs_str}\n"
-                            
-                            # Check if the page is literally an error page
+                        new_dev_errors = dev_server.get_new_errors()
+                        
+                        # Get browser console errors and clear the buffer
+                        browser_errs_str = "\n".join(browser_console_errors)
+                        browser_console_errors.clear()
+                        
+                        combined_errors = ""
+                        if new_dev_errors: combined_errors += f"Dev Server Errors:\n{new_dev_errors}\n"
+                        if browser_errs_str: combined_errors += f"Browser Console Errors:\n{browser_errs_str}\n"
+                        
+                        # Check if the page is literally an error page
+                        try:
                             page_title = dev_page.title()
-                            if "error" in page_title.lower() or "refused" in page_title.lower():
-                                combined_errors += f"Browser says: {page_title}\n"
-                                
-                            # Capture page context (screenshot + DOM)
+                        except Exception:
+                            page_title = ""
+                        if "error" in page_title.lower() or "refused" in page_title.lower():
+                            combined_errors += f"Browser says: {page_title}\n"
+                            
+                        # Capture page context (screenshot + DOM)
+                        # This can throw if the dev server is down or the page
+                        # execution context was destroyed during exploration.
+                        try:
                             screenshot_b64, screenshot_bytes, dom_summary = capture_page_context(dev_page)
-                                
-                            if config.CRITIC_TRIGGER == "error_or_bad_ui":
-                                critic_result = evaluate_ui(screenshot_b64, screenshot_bytes, dom_summary, combined_errors, critic_page=pages[critic_name], critic_platform=config.CHAT_PLATFORMS[critic_name])
-                            else:
-                                critic_result = {"verdict": "pass"}
-                        
-                        if critic_result.get("verdict") == "fix_needed":
-                            critic_retry_count += 1
-                            if critic_retry_count >= config.CRITIC_RETRY_CAP:
-                                print(f"[Critic] Max retries ({config.CRITIC_RETRY_CAP}) reached. Escalating to Chat UI.")
-                                current_payload = f"The UI Critic failed {config.CRITIC_RETRY_CAP} times. Last reason: {critic_result.get('reason')}\n\nAntigravity's last report:\n{current_payload}"
-                                save_checkpoint(turn, history_summary, phase, current_payload, next_recipient, critic_retry_count=0)
-                            else:
-                                print(f"[Critic] Fix needed. Routing back to Antigravity (Attempt {critic_retry_count})")
-                                instruction = critic_result.get('instruction', 'Fix the visual issues.')
-                                current_payload = f"UI Critic Feedback:\nReason: {critic_result.get('reason')}\nInstruction: {instruction}"
-                                next_recipient = "antigravity"
-                                save_checkpoint(turn, history_summary, phase, current_payload, next_recipient, critic_retry_count=critic_retry_count)
-                                continue # Skip Chat UI, go back to top of loop
+                        except Exception as ctx_err:
+                            print(f"[Critic] capture_page_context failed: {ctx_err}")
+                            print("[Critic] Skipping this evaluation turn — will retry next turn.")
+                            screenshot_b64, screenshot_bytes, dom_summary = "", None, ""
+                            
+                        if config.CRITIC_TRIGGER == "error_or_bad_ui":
+                            try:
+                                critic_result = evaluate_ui(
+                                    screenshot_b64, screenshot_bytes, dom_summary, combined_errors,
+                                    critic_page=pages[critic_name],
+                                    critic_platform=config.CHAT_PLATFORMS[critic_name]
+                                )
+                            except Exception as eval_err:
+                                print(f"[Critic] evaluate_ui failed: {eval_err}")
+                                print("[Critic] Falling back to PASS for this turn.")
+                                critic_result = {"verdict": "pass", "reason": f"Critic error: {eval_err}"}
                         else:
-                            print("[Critic] Verdict: pass. Forwarding to Chat UI.")
-                            critic_retry_count = 0
-                            save_checkpoint(turn, history_summary, phase, current_payload, next_recipient, critic_retry_count=0)
-
-                        print("Forwarding payload to Chat UI...")
-                        chat_response = _send_to_chat_with_retry(pages[architect_name], current_payload, platform=config.CHAT_PLATFORMS[architect_name])
-                        print(f"Chat UI response received ({len(chat_response)} chars).")
+                            critic_result = {"verdict": "pass"}
+                    
+                    # --- Handle Critic Result ---
+                    if critic_result.get("verdict") == "fix_needed":
+                        critic_retry_count += 1
                         
-                        analysis = analyze_message(chat_response)
-                        history_summary += f"\n--- Turn {turn} (Chat) [{analysis.get('phase_tag', '')}] ---\n"
-                        history_summary += f"{chat_response[:500]}\n"
-                        
-                        if analysis.get("is_error"):
-                            notify_phone("Error trace from Chat UI", "Bridge Paused")
-                            print("!! Error detected in Chat UI output. Pausing.")
-                            print(f"Qwen Analysis: {analysis}")
-                            input("Press Enter to continue loop anyway, or Ctrl+C to abort...")
-                        
-                        if analysis.get("is_done"):
-                            print("Task signaled DONE by Chat UI.")
-                            exited_cleanly = True
-                            break
-                        
-                        current_payload = chat_response
-                        
-                        # Check if Claude is asking a question instead of giving a command
-                        for _ in range(3):
-                            if not _is_question_response(current_payload, analysis):
+                        if critic_retry_count >= config.CRITIC_RETRY_CAP:
+                            # Escalate to Claude
+                            escalation_count += 1
+                            print(f"[Critic] Max retries ({config.CRITIC_RETRY_CAP}) reached. Escalating to Claude (Escalation #{escalation_count}).")
+                            
+                            if escalation_count >= 2:
+                                print("[Critic] Multiple escalations. Accepting current state and terminating.")
+                                exited_cleanly = True
                                 break
                             
-                            print("[Orchestrator] Claude asked a question mid-loop. Auto-replying to keep flow moving...")
-                            auto_reply = (
-                                "Do NOT ask questions. You are in a fully automated pipeline. "
-                                "Make your best decision and give the next concrete, executable command for the coding agent."
+                            escalation_msg = (
+                                f"The UI Critic has failed {config.CRITIC_RETRY_CAP} consecutive times to get a passing result. "
+                                f"Last reason: {critic_result.get('reason')}\n\n"
+                                f"Original task: {initial_task}\n\n"
+                                f"Antigravity's last report:\n{current_payload[:2000]}\n\n"
+                                f"Provide a SINGLE comprehensive fix instruction that addresses ALL remaining issues. "
+                                f"Do NOT break it into steps."
                             )
-                            chat_response = _send_to_chat_with_retry(pages[architect_name], auto_reply, platform=config.CHAT_PLATFORMS[architect_name])
+                            
+                            chat_response = _send_to_chat_with_retry(pages[architect_name], escalation_msg, platform=config.CHAT_PLATFORMS[architect_name])
                             current_payload = chat_response
-                            analysis = analyze_message(chat_response)
-                        
-                        next_recipient = "antigravity"
-                        
-                    elif next_recipient == "antigravity":
-                        print("Forwarding payload to Antigravity...")
-                        ag_win.set_focus()
-                        
-                        # Just forward the payload to Antigravity directly
-                        ag_prompt = f"{current_payload}"
-                        
-                        send_to_antigravity(ag_win, ag_prompt)
-                        ag_response = wait_for_antigravity_response(ag_win)
-                        print(f"Antigravity response received ({len(ag_response)} chars).")
-                        
-                        analysis = analyze_message(ag_response)
-                        history_summary += f"\n--- Turn {turn} (Antigravity) [{analysis.get('phase_tag', '')}] ---\n"
-                        history_summary += f"{ag_response[:500]}\n"
-                        
-                        current_payload = ag_response
-
-                        if analysis.get("is_error"):
-                            print("!! Error detected in Antigravity output. Summarizing...")
-                            summarized_err = summarize_error(ag_response)
-                            notify_phone("Error trace from Antigravity", "Bridge Paused")
-                            print(f"Qwen Analysis: {analysis}")
-                            print(f"Summary:\n{summarized_err}")
-                            input("Press Enter to forward this summary to Chat UI, or Ctrl+C to abort...")
-                            current_payload = summarized_err
-                        
-                        if analysis.get("is_done"):
-                            print("Task signaled DONE by Antigravity.")
-                            exited_cleanly = True
-                            break
-                        next_recipient = "chat"
-                        turn += 1
-                        
-                        if turn % 5 == 0:
-                            history_summary = compress_history(history_summary)
+                            critic_retry_count = 0
+                            
+                            # Send Claude's fix instruction to Antigravity
+                            print("Forwarding Claude's fix instruction to Antigravity...")
+                            ag_win.set_focus()
+                            send_to_antigravity(ag_win, current_payload)
+                            ag_response = wait_for_antigravity_response(ag_win)
+                            current_payload = ag_response
+                            print(f"Antigravity fix response received ({len(ag_response)} chars).")
+                            
+                            history_summary += f"\n--- Turn {turn} (Escalation #{escalation_count}) ---\n{ag_response[:500]}\n"
+                        else:
+                            # Send fix directly to Antigravity (no Claude involved)
+                            print(f"[Critic] Fix needed. Routing directly to Antigravity (Attempt {critic_retry_count}/{config.CRITIC_RETRY_CAP})")
+                            instruction = critic_result.get('instruction', 'Fix the visual issues.')
+                            reason = critic_result.get('reason', '')
+                            
+                            fix_prompt = (
+                                f"UI Critic Feedback (fix attempt {critic_retry_count}/{config.CRITIC_RETRY_CAP}):\n"
+                                f"Reason: {reason}\n"
+                                f"Instruction: {instruction}\n\n"
+                                f"Fix this issue and verify the dev server runs cleanly."
+                            )
+                            
+                            ag_win.set_focus()
+                            send_to_antigravity(ag_win, fix_prompt)
+                            ag_response = wait_for_antigravity_response(ag_win)
+                            current_payload = ag_response
+                            print(f"Antigravity fix response received ({len(ag_response)} chars).")
+                            
+                            history_summary += f"\n--- Turn {turn} (Critic Fix #{critic_retry_count}) ---\n{ag_response[:500]}\n"
+                    else:
+                        # Critic passed!
+                        print("[Critic] Verdict: PASS. Application looks good!")
+                        exited_cleanly = True
+                        break
+                    
+                    turn += 1
+                    
+                    if turn % 5 == 0:
+                        history_summary = compress_history(history_summary)
 
         except KeyboardInterrupt:
             print("\n\nInterrupted by user (Ctrl+C). Saving checkpoint...")
-            save_checkpoint(turn, history_summary, phase, current_payload, next_recipient)
+            save_checkpoint(turn, history_summary, phase, current_payload, "critic", project_brief=project_brief)
             notify_phone("User interrupted the bridge loop.", "Bridge Stopped")
 
         except Exception as e:

@@ -72,21 +72,31 @@ def extract_dom_summary(page, max_depth=5):
 
 def capture_page_context(dev_page):
     """Captures screenshots (via smart exploration) and DOM summary from the dev page."""
-    # Extract DOM summary from the current page state
+    # Smart exploration: scroll, navigate routes, click elements, capture all
+    base_url = f"http://localhost:{config.DEV_SERVER_PORT}"
+
+    try:
+        screenshots = explore_page(dev_page, base_url=base_url)
+    except Exception as e:
+        print(f"[Critic] Page exploration failed, falling back to single screenshot: {e}")
+        screenshots = []
+
+    # After exploration, ensure we're back on the base URL with a valid context
+    try:
+        dev_page.goto(base_url, wait_until="networkidle", timeout=10000)
+    except Exception:
+        try:
+            dev_page.goto(base_url, wait_until="domcontentloaded", timeout=10000)
+        except Exception as e:
+            print(f"[Critic] Warning: could not re-navigate to base URL: {e}")
+
+    # Extract DOM summary from the current (restored) page state
     try:
         max_depth = getattr(config, 'CRITIC_DOM_MAX_DEPTH', 5)
         dom_summary = extract_dom_summary(dev_page, max_depth=max_depth)
     except Exception as e:
         print(f"[Critic] Failed to extract DOM: {e}")
         dom_summary = ""
-
-    # Smart exploration: scroll, navigate routes, click elements, capture all
-    base_url = f"http://localhost:{config.DEV_SERVER_PORT}"
-    try:
-        screenshots = explore_page(dev_page, base_url=base_url)
-    except Exception as e:
-        print(f"[Critic] Page exploration failed, falling back to single screenshot: {e}")
-        screenshots = []
 
     if screenshots:
         composite_b64, composite_bytes = stitch_screenshots(screenshots)
@@ -166,8 +176,24 @@ def _evaluate_via_web_ui(screenshot_b64: str, screenshot_bytes: bytes, dom_summa
                 stable_count = 0
         
         # Parse JSON from last_text
-        if "```json" in last_text:
-            last_text = last_text.split("```json")[1].split("```")[0].strip()
+        import re
+        
+        # Try to clean up markdown code blocks if present
+        if "```json" in last_text.lower():
+            try:
+                last_text = re.split(r"```json", last_text, flags=re.IGNORECASE)[1].split("```")[0].strip()
+            except Exception:
+                pass
+        elif "```" in last_text:
+            parts = last_text.split("```")
+            if len(parts) >= 3:
+                last_text = parts[1].strip()
+                
+        # Find the first { and last } to extract just the JSON object
+        start_idx = last_text.find('{')
+        end_idx = last_text.rfind('}')
+        if start_idx != -1 and end_idx != -1 and end_idx >= start_idx:
+            last_text = last_text[start_idx:end_idx+1]
             
         result = json.loads(last_text)
         print(f"[Critic] Result: {result}")

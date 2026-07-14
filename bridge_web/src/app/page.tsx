@@ -221,8 +221,18 @@ export default function Dashboard() {
             <div className="flex gap-1.5 pl-1">
               {activePrompt.toLowerCase().includes("(y/n)") ? (
                 <>
-                  <Button onClick={() => { setPromptResponse("y"); setTimeout(handlePromptSubmit, 10); }} size="sm" className="bg-zinc-900 hover:bg-black text-white h-7 px-3 text-xs rounded-sm">Yes</Button>
-                  <Button onClick={() => { setPromptResponse("n"); setTimeout(handlePromptSubmit, 10); }} size="sm" variant="outline" className="h-7 px-3 text-xs rounded-sm border-yellow-300 text-yellow-800 hover:bg-yellow-100">No</Button>
+                  <Button onClick={() => { 
+                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                      wsRef.current.send(JSON.stringify({ type: "input_response", value: "y" }));
+                      setActivePrompt(null);
+                    }
+                  }} size="sm" className="bg-zinc-900 hover:bg-black text-white h-7 px-3 text-xs rounded-sm">Yes</Button>
+                  <Button onClick={() => { 
+                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                      wsRef.current.send(JSON.stringify({ type: "input_response", value: "n" }));
+                      setActivePrompt(null);
+                    }
+                  }} size="sm" variant="outline" className="h-7 px-3 text-xs rounded-sm border-yellow-300 text-yellow-800 hover:bg-yellow-100">No</Button>
                 </>
               ) : (
                 <>

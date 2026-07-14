@@ -30,7 +30,7 @@ HUMAN_DELAY_MIN = 1.0        # minimum random delay before sending (anti-bot)
 HUMAN_DELAY_MAX = 3.0        # maximum random delay before sending (anti-bot)
 
 MAX_TURNS = 40
-MIN_CRITIC_TURN = 2          # turns to wait before firing critic
+MIN_CRITIC_TURN = 1          # evaluate immediately after Antigravity builds
 CRITIC_DOM_MAX_DEPTH = 5     # max depth for DOM summary extraction
 
 # --- Page Explorer ---
@@ -74,7 +74,9 @@ def check_config():
 
 # --- Dev Server & UI Critic Config ---
 DEV_SERVER_CMD = "npm run dev"
-DEV_SERVER_CWD = r"d:\coding_files\kpautomate\portfolio-app"
+# This is the default; the bridge will update this based on the project being built.
+# Set to the directory where the project will be created.
+DEV_SERVER_CWD = r"d:\coding_files\kpautomate\meridian"
 DEV_SERVER_PORT = 3000
 CRITIC_MODE = "chatgpt"  # "local" or "chatgpt"
 CRITIC_MODEL = "qwen3-vl:8b"

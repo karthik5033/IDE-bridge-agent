@@ -51,19 +51,9 @@ def analyze_message(text: str, system: str = ORCHESTRATOR_SYSTEM) -> dict:
                 actual_is_error = False
 
         # Ensure fallback fields
-        # Detect if the AI is asking a question instead of giving a command
+        # We now rely strictly on Qwen's chain-of-thought reasoning to determine if it is a question,
+        # rather than brittle substring matching that frequently triggers false positives on project briefs.
         is_question = bool(parsed.get("is_question", False))
-        # Heuristic fallback: catch common question patterns the LLM might miss
-        question_patterns = [
-            "which do you prefer", "would you like", "should i", "do you want",
-            "continue or start", "option 1", "option 2", "select one",
-            "choose from", "pick one", "what would you", "shall i",
-            "before i proceed", "before we begin", "quick check",
-            "is this task a continuation"
-        ]
-        text_lower = text.lower()
-        if any(pat in text_lower for pat in question_patterns):
-            is_question = True
 
         return {
             "is_done": actual_is_done,

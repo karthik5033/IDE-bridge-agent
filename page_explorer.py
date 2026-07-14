@@ -233,8 +233,15 @@ def explore_page(dev_page, base_url="http://localhost:3000"):
     try:
         dev_page.goto(starting_url, wait_until="networkidle", timeout=8000)
         time.sleep(1)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[Explorer] Failed to return to starting page: {e}")
+        # Try one more time with domcontentloaded (less strict)
+        try:
+            dev_page.goto(starting_url, wait_until="domcontentloaded", timeout=8000)
+            time.sleep(1)
+        except Exception:
+            print(f"[Explorer] Could not recover starting page. Returning collected screenshots.")
+            return screenshots
     
     # --- Step 4: Click interactive elements and capture results ---
     interactives = _discover_interactive_elements(dev_page)
@@ -267,7 +274,11 @@ def explore_page(dev_page, base_url="http://localhost:3000"):
     try:
         dev_page.goto(starting_url, wait_until="networkidle", timeout=8000)
     except Exception:
-        pass
+        # Fallback with less strict wait
+        try:
+            dev_page.goto(starting_url, wait_until="domcontentloaded", timeout=8000)
+        except Exception:
+            print(f"[Explorer] Warning: Could not return to starting page after exploration.")
     
     print(f"[Explorer] Exploration complete. Captured {len(screenshots)} screenshots total.")
     return screenshots
