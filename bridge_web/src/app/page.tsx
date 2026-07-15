@@ -358,10 +358,10 @@ export default function Dashboard() {
 
         {/* Active Prompt Response Input */}
         {activePrompt && (
-          <div className="mt-8 w-full max-w-2xl bg-[#E9D9B9]/5 border border-[#E9D9B9]/20 rounded-2xl p-5 flex flex-col gap-4 shadow-xl backdrop-blur-sm animate-in fade-in slide-in-from-bottom-4">
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-2xl bg-[#2C2B29]/95 border-2 border-[#E9D9B9] rounded-2xl p-5 flex flex-col gap-4 shadow-[0_0_40px_rgba(233,217,185,0.15)] backdrop-blur-md animate-in fade-in slide-in-from-bottom-8">
             <div className="flex items-center gap-3">
-              <span className="w-2 h-2 rounded-full bg-[#E9D9B9] animate-pulse shadow-[0_0_8px_rgba(233,217,185,0.6)]" />
-              <span className="text-sm font-medium text-[#E9D9B9]">{activePrompt}</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-[#E9D9B9] animate-pulse shadow-[0_0_8px_rgba(233,217,185,0.8)]" />
+              <span className="text-sm font-bold tracking-wide text-[#E9D9B9]">{activePrompt}</span>
             </div>
             <div className="flex gap-2">
               {activePrompt.toLowerCase().includes("(y/n)") ? (
@@ -371,13 +371,13 @@ export default function Dashboard() {
                       wsRef.current.send(JSON.stringify({ type: "input_response", value: "y" }));
                       setActivePrompt(null);
                     }
-                  }} className="bg-[#E9D9B9] text-[#242321] hover:bg-white px-8 py-2.5 rounded-xl text-sm font-semibold transition-colors">Yes</button>
+                  }} className="flex-1 bg-[#E9D9B9] text-[#242321] hover:bg-white px-8 py-3 rounded-xl text-sm font-bold transition-all shadow-md">Yes</button>
                   <button onClick={() => { 
                     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                       wsRef.current.send(JSON.stringify({ type: "input_response", value: "n" }));
                       setActivePrompt(null);
                     }
-                  }} className="border border-[#E9D9B9]/40 text-[#E9D9B9] hover:bg-[#E9D9B9]/10 px-8 py-2.5 rounded-xl text-sm font-semibold transition-colors">No</button>
+                  }} className="flex-1 border-2 border-[#E9D9B9]/40 text-[#E9D9B9] hover:bg-[#E9D9B9]/10 px-8 py-3 rounded-xl text-sm font-bold transition-all">No</button>
                 </>
               ) : (
                 <>
@@ -385,11 +385,11 @@ export default function Dashboard() {
                     value={promptResponse}
                     onChange={(e) => setPromptResponse(e.target.value)}
                     placeholder="Type response..."
-                    className="flex-1 bg-[#2A2927] border border-[#4A4947] focus:border-[#E9D9B9]/60 outline-none text-[#E6DED0] px-4 rounded-xl text-sm transition-colors"
+                    className="flex-1 bg-[#1A1918] border border-[#4A4947] focus:border-[#E9D9B9] outline-none text-[#E6DED0] px-4 py-3 rounded-xl text-sm transition-colors shadow-inner"
                     onKeyDown={(e) => e.key === 'Enter' && handlePromptSubmit()}
                     autoFocus
                   />
-                  <button onClick={handlePromptSubmit} className="bg-[#E9D9B9] text-[#242321] hover:bg-white px-8 py-2.5 rounded-xl text-sm font-semibold transition-colors">
+                  <button onClick={handlePromptSubmit} className="bg-[#E9D9B9] text-[#242321] hover:bg-white px-8 py-3 rounded-xl text-sm font-bold transition-all shadow-md">
                     Send
                   </button>
                 </>

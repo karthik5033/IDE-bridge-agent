@@ -21,9 +21,9 @@ Include:
 4. **Data Needs**: A brief overview of what mock data the app will need (e.g., "Mock data for 10 premium audio products").
 
 === CRITICAL ===
-- Do NOT write strict component-level specifications or exact file structures. The coding agent works best when given creative freedom.
-- Act as the "prompt engineer" for the coding agent. Inspire it with a strong product vision, and let it do the heavy lifting of writing the code and architecting the details.
-- Prioritize visual excellence in your description so the agent knows to build something premium.
+- Do NOT write strict component-level specifications or exact file structures.
+- Act as the lead architect. Your response MUST be a clear, numbered step-by-step master plan for the entire project.
+- Do NOT execute the first step yet. Just provide the overall vision and the numbered list of steps. We will ask you for the specific prompt for step 1 in the next message.
 
 Now, given the task below, produce your project vision.
 

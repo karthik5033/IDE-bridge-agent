@@ -11,7 +11,7 @@ from page_explorer import explore_page, stitch_screenshots
 CRITIC_SYSTEM_PROMPT = config.load_prompt("critic_system.md")
 
 def extract_dom_summary(page, max_depth=5):
-    """Extracts a simplified summary of the DOM to help the critic understand structure."""
+    """Extracts a simplified summary of the DOM and checks for layout issues."""
     return page.evaluate(f"""() => {{
         function summarizeElement(el, depth, maxDepth) {{
             if (depth > maxDepth) return "...";
@@ -67,8 +67,22 @@ def extract_dom_summary(page, max_depth=5):
             return summary;
         }}
         
-        return summarizeElement(document.body, 0, {max_depth});
-    }}""")
+        const domSummary = summarizeElement(document.body, 0, maxDepth);
+        
+        // Find overlapping or overflowing elements
+        const layoutIssues = [];
+        const allElements = document.querySelectorAll('body *');
+        
+        // Simple overflow check
+        for (const el of allElements) {{
+            if (el.scrollWidth > el.clientWidth) {{
+                layoutIssues.push(`Overflow: <${{el.tagName.toLowerCase()}}> with text "${{(el.innerText || '').substring(0,20)}}" is overflowing its container.`);
+            }}
+        }}
+        
+        let issuesStr = layoutIssues.length > 0 ? "\\n\\nLAYOUT ISSUES DETECTED:\\n" + layoutIssues.slice(0, 10).join("\\n") : "";
+        return domSummary + issuesStr;
+    }}""", arg=max_depth)
 
 def capture_page_context(dev_page):
     """Captures screenshots (via smart exploration) and DOM summary from the dev page."""
@@ -83,17 +97,35 @@ def capture_page_context(dev_page):
 
     # After exploration, ensure we're back on the base URL with a valid context
     try:
-        dev_page.goto(base_url, wait_until="networkidle", timeout=10000)
-    except Exception:
-        try:
-            dev_page.goto(base_url, wait_until="domcontentloaded", timeout=10000)
-        except Exception as e:
-            print(f"[Critic] Warning: could not re-navigate to base URL: {e}")
+        # Navigate and wait for DOM, then wait slightly for hydration
+        dev_page.goto(base_url, wait_until="domcontentloaded", timeout=10000)
+        import time
+        time.sleep(2)
+    except Exception as e:
+        if "interrupted by another navigation" not in str(e):
+            print(f"[Critic] Warning on navigation: {e}")
 
-    # Extract DOM summary from the current (restored) page state
+    # Extract DOM summary and layout issues from the current page state
     try:
         max_depth = getattr(config, 'CRITIC_DOM_MAX_DEPTH', 5)
         dom_summary = extract_dom_summary(dev_page, max_depth=max_depth)
+        
+        # Capture Accessibility Tree Snapshot
+        try:
+            ax_tree = dev_page.accessibility.snapshot()
+            import json
+            # Only include high-level structure to save tokens
+            def simplify_ax(node):
+                simplified = {"role": node.get("role"), "name": node.get("name")}
+                if "children" in node:
+                    simplified["children"] = [simplify_ax(c) for c in node["children"][:5]] # truncate for size
+                return simplified
+            
+            if ax_tree:
+                dom_summary += "\n\nACCESSIBILITY TREE:\n" + json.dumps(simplify_ax(ax_tree), indent=2)
+        except Exception as ax_err:
+            print(f"[Critic] Failed to extract accessibility tree: {ax_err}")
+            
     except Exception as e:
         print(f"[Critic] Failed to extract DOM: {e}")
         dom_summary = ""
