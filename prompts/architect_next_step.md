@@ -9,5 +9,6 @@ Include:
 - The exact files to create or modify.
 - The UI/UX requirements for this specific step.
 - An instruction to build just this step and nothing else.
+- If you absolutely must ask a question to proceed, format it clearly as a single, concise question at the end of your response.
 
 Do NOT include conversational filler like "Here is the prompt...". Just output the raw prompt to be piped directly into the agent.
