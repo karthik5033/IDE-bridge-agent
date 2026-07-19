@@ -3,11 +3,17 @@ import os
 STOP_REQUESTED = False
 
 OLLAMA_MODELS = {
-    "orchestrator": "qwen2.5",         # signal detection, phase tagging
-    "code_analyzer": "qwen2.5-coder:latest",  # error analysis, code review
-    "ui_critic": "qwen3-vl:8b",        # fallback vision critic (when ChatGPT unavailable)
+    "orchestrator": "qwen2.5",           # signal detection, phase tagging (upgrade to qwen2.5:14b or :32b if VRAM allows)
+    "code_analyzer": "qwen2.5-coder:latest",  # error analysis, code review (upgrade to :14b if possible)
+    "ui_critic": "qwen3-vl:8b",          # fallback vision critic (when ChatGPT unavailable)
 }
 OLLAMA_URL = "http://localhost:11434/api/generate"
+
+# --- Orchestrator Intelligence Settings ---
+ORCHESTRATOR_CONFIDENCE_THRESHOLD = 0.7   # Qwen must be ≥ this confident to flag is_error/is_question as true
+ORCHESTRATOR_VERIFICATION_ENABLED = True  # Dual-pass: re-verify error/question signals with a second LLM call
+ORCHESTRATOR_MAX_JSON_RETRIES = 2         # Retry malformed JSON responses up to this many times
+ORCHESTRATOR_TEMPERATURE = 0.1            # Low temperature for deterministic signal detection
 CHROME_CDP_URL = "http://localhost:9222"   # Chrome remote debugging port
 
 # CSS selectors for Claude.ai (found via find_selectors.py)
@@ -54,6 +60,39 @@ RATE_LIMIT_PHRASES = [
     "usage limit",
     "you're out of free messages",
     "upgrade to continue",
+]
+
+# --- Functional QA Error Filtering ---
+# Console messages matching any of these patterns (case-insensitive) are NOT treated as errors
+QA_IGNORE_PATTERNS = [
+    "hydration",
+    "did not match",
+    "favicon.ico",
+    "404 (Not Found)",
+    "source map",
+    "DevTools",
+    "Download the React DevTools",
+    "Warning: Each child in a list",
+    "Warning: validateDOMNesting",
+    "[HMR]",
+    "Fast Refresh",
+    "webpack-hmr",
+    "net::ERR_CONNECTION_REFUSED",
+]
+
+# Patterns that are ALWAYS fatal (override ignore list) — these always trigger a fix cycle
+QA_FATAL_PATTERNS = [
+    "TypeError",
+    "ReferenceError",
+    "SyntaxError",
+    "Uncaught",
+    "Unhandled",
+    "FATAL",
+    "Cannot read propert",
+    "is not a function",
+    "is not defined",
+    "Module not found",
+    "Failed to compile",
 ]
 
 
