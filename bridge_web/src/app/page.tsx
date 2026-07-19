@@ -41,27 +41,34 @@ export default function Dashboard() {
 
   // Fetch Models
   useEffect(() => {
-    fetch("http://localhost:8000/api/models")
-      .then(res => res.json())
-      .then(data => {
+    const fetchModels = async () => {
+      try {
+        const res = await fetch(`http://${window.location.hostname}:8000/api/models`);
+        if (!res.ok) {
+          setModels(["API Offline"]);
+          return;
+        }
+        const data = await res.json();
         if (data.models && data.models.length > 0) {
           setModels(data.models);
         } else {
           setModels(["No Models Found"]);
         }
         if (data.active) setActiveModel(data.active);
-      })
-      .catch(err => {
-        console.error("Fetch models failed:", err);
+      } catch (err) {
+        // Silently catch the error to prevent Next.js error overlay and console errors
         setModels(["API Offline"]);
-      });
+      }
+    };
+
+    fetchModels();
   }, []);
 
   useEffect(() => {
     let reconnectTimer: NodeJS.Timeout;
     
     const connect = () => {
-      const ws = new WebSocket("ws://localhost:8000/ws/stream");
+      const ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/stream`);
       
       ws.onopen = () => setIsConnected(true);
       
@@ -145,7 +152,7 @@ export default function Dashboard() {
     setAgentState("running");
     setHasStarted(true);
     try {
-      const res = await fetch("http://localhost:8000/api/start", {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task: initialTask })
@@ -154,7 +161,7 @@ export default function Dashboard() {
         setSystemLogs(prev => [...prev, { id: logIdCounter.current++, message: "[System] Bridge Engine Started in Background..." }]);
       }
     } catch (error) {
-      console.error(error);
+      console.warn("Failed to start:", error);
       setAgentState("idle");
     }
   };
@@ -162,7 +169,7 @@ export default function Dashboard() {
   const handleStop = async () => {
     setAgentState("stopping");
     try {
-      await fetch("http://localhost:8000/api/stop", { method: "POST" });
+      await fetch(`http://${window.location.hostname}:8000/api/stop`, { method: "POST" });
       setSystemLogs(prev => [...prev, { id: logIdCounter.current++, message: "[System] Stop signal sent. Waiting for agent to halt..." }]);
       
       setTimeout(() => {
@@ -183,13 +190,13 @@ export default function Dashboard() {
   const handleModelChange = async (newModel: string) => {
     setActiveModel(newModel);
     try {
-      await fetch("http://localhost:8000/api/models/active", {
+      await fetch(`http://${window.location.hostname}:8000/api/models/active`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model_name: newModel })
       });
     } catch (err) {
-      console.error(err);
+      console.warn("Failed to change model:", err);
     }
   };
 
