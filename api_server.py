@@ -12,6 +12,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import bridge_logger
 import config
+import checkpoint
 from main import run_bridge
 
 app = FastAPI(title="Bridge Dashboard API")
@@ -65,6 +66,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 class StartRequest(BaseModel):
     task: str
+    resume: bool = False
 
 @app.get("/api/models")
 def get_models():
@@ -92,11 +94,22 @@ def set_active_model(req: ModelRequest):
 
 active_thread = None
 
+@app.get("/api/checkpoint")
+def check_checkpoint():
+    chk = checkpoint.load_checkpoint()
+    return {"has_checkpoint": chk is not None}
+
 @app.post("/api/start")
 async def start_bridge(req: StartRequest):
     global active_thread
+    
+    if active_thread and active_thread.is_alive():
+        return {"status": "error", "message": "Bridge is already running. Please stop it before starting a new session."}
+        
+    config.STOP_REQUESTED = False
+    
     # Spawn a background thread to run the synchronous bridge engine
-    t = threading.Thread(target=run_bridge, args=(req.task,), daemon=True)
+    t = threading.Thread(target=run_bridge, args=(req.task, req.resume), daemon=True)
     t.start()
     active_thread = t
     return {"status": "started", "message": "Bridge thread launched in background."}
@@ -115,4 +128,4 @@ async def stop_bridge():
 if __name__ == "__main__":
     import uvicorn
     # Make sure to run this file via `python api_server.py`
-    uvicorn.run("api_server:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("api_server:app", host="0.0.0.0", port=8000, reload=True)
