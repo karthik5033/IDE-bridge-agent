@@ -7,10 +7,20 @@ UIA backend only for locating the window handle. All keystrokes are sent
 via win32 SendInput through pyautogui AFTER verifying the correct window
 is in the foreground.
 """
-
 import time
 import ctypes
 import ctypes.wintypes
+
+# CRITICAL: Switch to the interactive input desktop BEFORE importing pywinauto.
+# Antigravity IDE spawns its terminal processes on a non-interactive desktop.
+# pywinauto's import initializes COM, which creates thread hooks that prevent
+# SetThreadDesktop() from working afterward. We must switch desktops first.
+_user32 = ctypes.windll.user32
+_GENERIC_ALL = 0x10000000
+_hdesk = _user32.OpenInputDesktop(0, False, _GENERIC_ALL)
+if _hdesk:
+    _user32.SetThreadDesktop(_hdesk)
+
 import pyperclip
 import pyautogui
 from bridge_logger import bprint as print, binput as input
@@ -83,20 +93,99 @@ def _get_hwnd(win):
     return win.handle
 
 
+def _find_window_hwnd_ctypes(title_pattern):
+    """Uses raw Win32 EnumWindows to find a visible window matching the regex."""
+    import re
+    pattern = re.compile(title_pattern)
+    
+    debug_log = []
+    debug_log.append(f"Looking for pattern: {title_pattern}")
+
+    # Switch to the interactive desktop so we can see real windows.
+    GENERIC_ALL = 0x10000000
+    hdesk = user32.OpenInputDesktop(0, False, GENERIC_ALL)
+    debug_log.append(f"OpenInputDesktop(GENERIC_ALL) returned: {hdesk}")
+    
+    if hdesk:
+        result = user32.SetThreadDesktop(hdesk)
+        debug_log.append(f"SetThreadDesktop(GENERIC_ALL) returned: {result}")
+        if not result:
+            hdesk2 = user32.OpenInputDesktop(0, False, 0x00C1)  # READ|WRITE|ENUM
+            debug_log.append(f"OpenInputDesktop(0x00C1) returned: {hdesk2}")
+            if hdesk2:
+                res2 = user32.SetThreadDesktop(hdesk2)
+                debug_log.append(f"SetThreadDesktop(0x00C1) returned: {res2}")
+
+    EnumWindows = user32.EnumWindows
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    GetWindowTextW = user32.GetWindowTextW
+    GetWindowTextLengthW = user32.GetWindowTextLengthW
+    IsWindowVisible = user32.IsWindowVisible
+
+    found_hwnd = []
+    seen_titles = []
+
+    def callback(hwnd, lParam):
+        if IsWindowVisible(hwnd):
+            length = GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buff = ctypes.create_unicode_buffer(length + 1)
+                GetWindowTextW(hwnd, buff, length + 1)
+                title = buff.value
+                seen_titles.append(title)
+                if pattern.search(title):
+                    found_hwnd.append(hwnd)
+                    # Don't stop enumerating, we want to log everything for debug
+        return True
+
+    EnumWindows(EnumWindowsProc(callback), 0)
+    
+    debug_log.append(f"Total visible windows found: {len(seen_titles)}")
+    debug_log.append("Visible window titles:")
+    for t in seen_titles:
+        debug_log.append(f"  - {t}")
+        
+    debug_log.append(f"Matching HWNDs: {found_hwnd}")
+    
+    try:
+        with open("d:\\coding_files\\kpautomate\\bridge_agent\\debug_driver.txt", "w", encoding="utf-8") as f:
+            f.write("\n".join(debug_log))
+    except Exception:
+        pass
+
+    return found_hwnd[0] if found_hwnd else None
+
+
 def get_antigravity_window():
     """Locates the Antigravity window using the configured title regex.
     Returns the window wrapper. Raises RuntimeError if not found."""
     print("[Antigravity] Locating window...")
     try:
-        desktop = Desktop(backend="uia")
-        win = desktop.window(title_re=config.ANTIGRAVITY_WINDOW_TITLE)
-        # .exists() actually queries the OS — if False, the window isn't there
-        if not win.exists():
-            raise RuntimeError(
-                f"No window matching regex: {config.ANTIGRAVITY_WINDOW_TITLE}"
-            )
-        print("[Antigravity] Window found.")
-        return win
+        # Primary: use raw ctypes EnumWindows (works from any process context)
+        hwnd = _find_window_hwnd_ctypes(config.ANTIGRAVITY_WINDOW_TITLE)
+        if hwnd:
+            from pywinauto import Application
+            app = Application(backend="uia").connect(handle=hwnd)
+            win = app.window(handle=hwnd)
+            print(f"[Antigravity] Window found via ctypes (hwnd={hwnd}).")
+            return win
+
+        # Fallback: try pywinauto Desktop directly
+        for backend in ("uia", "win32"):
+            try:
+                desktop = Desktop(backend=backend)
+                win = desktop.window(title_re=config.ANTIGRAVITY_WINDOW_TITLE)
+                if win.exists():
+                    print(f"[Antigravity] Window found via pywinauto ({backend}).")
+                    return win
+            except Exception:
+                pass
+
+        raise RuntimeError(
+            f"No window matching regex: {config.ANTIGRAVITY_WINDOW_TITLE}"
+        )
+    except RuntimeError:
+        raise
     except Exception as e:
         print(f"[Antigravity] Error locating window: {e}")
         notify_phone(f"Failed to find Antigravity window: {e}", "Bridge Error")
@@ -213,6 +302,10 @@ def send_to_antigravity(win, text: str):
     try:
         print("[Antigravity] Sending instruction...")
 
+        # Save previous foreground window and mouse position to minimize disruption
+        previous_hwnd = user32.GetForegroundWindow()
+        original_mouse = pyautogui.position()
+
         # Clear any stale response file before pinging the agent
         response_file = r"d:\coding_files\kpautomate\bridge_response.txt"
         if os.path.exists(response_file):
@@ -254,14 +347,17 @@ def send_to_antigravity(win, text: str):
         time.sleep(0.5)
         pyautogui.hotkey('ctrl', 'enter')
         
-        # Also try to click the send button slightly above the input box as a fallback
-        # The send button is usually at the bottom right of the input box
         send_btn_x = rect.right - 60
         send_btn_y = rect.bottom - 110
         pyautogui.click(send_btn_x, send_btn_y)
 
+        # Restore previous mouse position and foreground window
+        pyautogui.moveTo(original_mouse[0], original_mouse[1])
+        if previous_hwnd and previous_hwnd != _get_hwnd(win):
+            _force_foreground(previous_hwnd)
+
         _last_sent_instruction = text
-        print("[Antigravity] Instruction sent.")
+        print("[Antigravity] Instruction sent. Restored previous window.")
 
     except Exception as e:
         print(f"[Antigravity] Error sending instruction: {e}")
@@ -285,11 +381,18 @@ def wait_for_antigravity_response(win) -> str:
             try:
                 with open(response_file, "r", encoding="utf-8") as f:
                     response = f.read().strip()
-                os.remove(response_file)
+                
+                try:
+                    os.remove(response_file)
+                except Exception:
+                    pass
                 
                 if response:
                     print(f"[Antigravity] Extracted response from file ({len(response)} chars).")
                     return response
+            except FileNotFoundError:
+                # Race condition: file was deleted before we could read it
+                pass
             except Exception as e:
                 print(f"[Antigravity] Error reading response file: {e}")
 
