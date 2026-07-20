@@ -11,6 +11,32 @@ You have full autonomy over implementation details (file structure, component co
 4. Make the UI look PREMIUM and production-quality.
 5. If you encounter an ambiguity or design fork not covered in the step instructions, make the decision yourself using your best product judgment. Pick the option that feels more premium, modern, and polished. Do NOT stop to ask the human.
 
+=== CRITICAL VISUAL QUALITY RULES ===
+These are HARD requirements. Violating any of these will cause your work to be rejected:
+
+1. NEVER render placeholder strings as visible text. If a component has a "thumbnail" or "image" field with a string like "placeholder-1", do NOT render that string on screen. Instead, use CSS to create styled visual treatments (gradients, patterns, etc.) or use the generate_image tool to create real imagery.
+
+2. NEVER use hardcoded rgba(0,0,0,...) or rgba(255,255,255,...) for borders, backgrounds, or hover states. Always use CSS custom properties (var(--color-border), var(--color-hover-bg), etc.) so colors work correctly regardless of the color scheme.
+
+3. NEVER use a pure black (#000 or #08080A) background with a single neon accent color. This is a banned "vibe-coded" aesthetic. Choose warm, sophisticated palettes instead.
+
+4. NEVER use the warm-cream (#F4F1EA) + terracotta (#D97757) combination. This is the most common AI-generated default palette and is banned.
+
+5. ALL interactive elements (links, buttons, cards) MUST have visible hover and focus states.
+
+6. Card layouts in grids MUST have consistent sizing and spacing. Cards should not be randomly sized or misaligned.
+
+7. Browser-chrome mockup dots should use realistic macOS colors (#FF6058, #FFC02E, #27CA40), not gray circles.
+
+8. NEVER use "mushed" narrow container layouts for card grids. Cards or main content squeezed into a tiny center column (e.g., max-width: 600px) look amateur. Grids MUST use standard wide containers (e.g., max-width: 1000px-1200px) so cards breathe.
+
+9. NEVER build barebones, simple navbars (e.g., just a logo and 3 links pushed to the left). A Shadcn-level navbar should have balanced alignment (logo left, links center/right, and a right-aligned CTA or utility like dark-mode/social icons).
+
+10. Maximize content density and UI polish. Do not leave massive empty gaps resulting in a "child's mess" look. Emulate Figma and Shadcn-level UI standards.
+
+=== DESIGN SYSTEM (MANDATORY) ===
+{design_system}
+
 === MASTER PLAN CONTEXT ===
 {master_plan}
 
