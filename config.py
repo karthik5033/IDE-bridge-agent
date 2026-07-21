@@ -93,6 +93,7 @@ QA_FATAL_PATTERNS = [
     "is not defined",
     "Module not found",
     "Failed to compile",
+    "No routes matched location",  # React Router broken links
 ]
 
 

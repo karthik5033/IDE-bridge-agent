@@ -32,10 +32,18 @@ These are HARD requirements. Violating any of these will cause your work to be r
 
 9. NEVER build barebones, simple navbars (e.g., just a logo and 3 links pushed to the left). A Shadcn-level navbar should have balanced alignment (logo left, links center/right, and a right-aligned CTA or utility like dark-mode/social icons).
 
-10. Maximize content density and UI polish. Do not leave massive empty gaps resulting in a "child's mess" look. Emulate Figma and Shadcn-level UI standards.
+10. **Content Density Compliance**: Every component must meet the minimum content density spec from the design library. Count your sub-elements before moving on. Do NOT leave massive empty gaps.
+
+11. **Ambient Motion**: Each major section must have at least one continuously animating element (e.g., a gradient shift, a particle field, a number counter) that runs without user interaction, in addition to reactive hover states.
+
+12. **Self-Verification**: Before you report this step as complete, you MUST mentally walk through the checklist provided in the "CURRENT STEP TO EXECUTE" and ensure every item is present.
 
 === DESIGN SYSTEM (MANDATORY) ===
 {design_system}
+
+=== LESSONS LEARNED (CRITICAL) ===
+These are mistakes you made in previous steps that the UI Critic rejected. Do NOT repeat them:
+{lessons_learned}
 
 === MASTER PLAN CONTEXT ===
 {master_plan}

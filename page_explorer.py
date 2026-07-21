@@ -195,11 +195,27 @@ def explore_page(dev_page, base_url="http://localhost:3000"):
     screenshots = []
     starting_url = dev_page.url
     
-    print(f"[Explorer] Starting smart exploration of {starting_url}")
+    import imagehash
     
+    # Track hashes to avoid duplicate screenshots
+    seen_hashes = set()
+    
+    def _is_novel_screenshot(img):
+        """Returns True if the image is visually distinct from previous ones."""
+        try:
+            h = imagehash.average_hash(img)
+            # Check against seen hashes, allow small variations (hamming distance < 5)
+            for seen_h in seen_hashes:
+                if h - seen_h < 5:
+                    return False
+            seen_hashes.add(h)
+            return True
+        except:
+            return True # If hashing fails, assume novel
+
     # --- Step 1: Full-page screenshot of current view ---
     result = _safe_screenshot(dev_page, full_page=True, label=f"Full Page: {dev_page.url}")
-    if result:
+    if result and _is_novel_screenshot(result[1]):
         screenshots.append(result)
         print(f"[Explorer] Captured full-page screenshot ({result[1].width}x{result[1].height})")
     
@@ -214,15 +230,18 @@ def explore_page(dev_page, base_url="http://localhost:3000"):
         try:
             target_url = urljoin(base_url, route["href"])
             print(f"[Explorer] Navigating to: {route['href']} ({route['text']})")
-            dev_page.goto(target_url, wait_until="networkidle", timeout=8000)
+            dev_page.goto(target_url, wait_until="networkidle", timeout=30000)
             time.sleep(1)
             
             result = _safe_screenshot(
                 dev_page, full_page=True,
                 label=f"Route: {route['href']} ({route['text']})"
             )
-            if result:
+            if result and _is_novel_screenshot(result[1]):
                 screenshots.append(result)
+                visited += 1
+            else:
+                print(f"[Explorer] Skipping duplicate screenshot for route {route['href']}")
                 visited += 1
         except Exception as e:
             print(f"[Explorer] Failed to visit {route['href']}: {e}")
@@ -231,13 +250,13 @@ def explore_page(dev_page, base_url="http://localhost:3000"):
     
     # --- Step 3: Go back to starting page for interactions ---
     try:
-        dev_page.goto(starting_url, wait_until="networkidle", timeout=8000)
+        dev_page.goto(starting_url, wait_until="networkidle", timeout=30000)
         time.sleep(1)
     except Exception as e:
         print(f"[Explorer] Failed to return to starting page: {e}")
         # Try one more time with domcontentloaded (less strict)
         try:
-            dev_page.goto(starting_url, wait_until="domcontentloaded", timeout=8000)
+            dev_page.goto(starting_url, wait_until="domcontentloaded", timeout=30000)
             time.sleep(1)
         except Exception:
             print(f"[Explorer] Could not recover starting page. Returning collected screenshots.")
@@ -262,9 +281,11 @@ def explore_page(dev_page, base_url="http://localhost:3000"):
                     dev_page, full_page=False,
                     label=f"After clicking {elem['type']}: '{elem['text']}'"
                 )
-                if result:
+                if result and _is_novel_screenshot(result[1]):
                     screenshots.append(result)
                     clicked += 1
+                else:
+                    print(f"[Explorer] Skipping duplicate screenshot after clicking {elem['text']}")
         except Exception as e:
             print(f"[Explorer] Failed to click {elem['text']}: {e}")
     
@@ -272,11 +293,11 @@ def explore_page(dev_page, base_url="http://localhost:3000"):
     
     # --- Step 5: Go back to starting page to leave it clean ---
     try:
-        dev_page.goto(starting_url, wait_until="networkidle", timeout=8000)
+        dev_page.goto(starting_url, wait_until="networkidle", timeout=30000)
     except Exception:
         # Fallback with less strict wait
         try:
-            dev_page.goto(starting_url, wait_until="domcontentloaded", timeout=8000)
+            dev_page.goto(starting_url, wait_until="domcontentloaded", timeout=30000)
         except Exception:
             print(f"[Explorer] Warning: Could not return to starting page after exploration.")
     

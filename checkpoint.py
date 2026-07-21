@@ -1,6 +1,36 @@
 import json
 import os
 import config
+import subprocess
+
+def git_commit_state(turn: int):
+    """Commits the current state of the workspace to Git."""
+    cwd = config.DEV_SERVER_CWD
+    try:
+        # Ensure git is initialized
+        if not os.path.exists(os.path.join(cwd, '.git')):
+            subprocess.run(['git', 'init'], cwd=cwd, check=True, capture_output=True)
+            
+        subprocess.run(['git', 'add', '.'], cwd=cwd, check=True, capture_output=True)
+        # We allow empty commits in case nothing changed but we still want a marker, though git commit -m might fail without --allow-empty
+        res = subprocess.run(['git', 'commit', '--allow-empty', '-m', f'Checkpoint: Turn {turn} (Critic PASS)'], cwd=cwd, capture_output=True)
+        if res.returncode == 0:
+            print(f"[Git] Checkpoint saved for turn {turn}.")
+        else:
+            # If there's nothing to commit, that's fine
+            print(f"[Git] No new changes to commit for turn {turn}.")
+    except Exception as e:
+        print(f"[Warning] Failed to git commit checkpoint: {e}")
+
+def git_rollback_state():
+    """Rolls back the workspace to the last Git commit."""
+    cwd = config.DEV_SERVER_CWD
+    try:
+        subprocess.run(['git', 'reset', '--hard', 'HEAD'], cwd=cwd, check=True, capture_output=True)
+        subprocess.run(['git', 'clean', '-fd'], cwd=cwd, check=True, capture_output=True)
+        print(f"[Git] Workspace rolled back to last stable checkpoint.")
+    except Exception as e:
+        print(f"[Warning] Failed to git rollback: {e}")
 
 def save_checkpoint(turn: int, history_summary: str, phase: int = 1, current_payload: str = "", next_recipient: str = "chat", **kwargs):
     """Saves the current turn, phase, and history summary to the checkpoint file."""

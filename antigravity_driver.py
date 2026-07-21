@@ -375,6 +375,10 @@ def wait_for_antigravity_response(win) -> str:
     print("[Antigravity] Waiting for response file...")
 
     while True:
+        if getattr(config, "STOP_REQUESTED", False):
+            print("\n[Antigravity] Stop requested while waiting for builder. Aborting wait.")
+            raise KeyboardInterrupt("Stopped by user via dashboard")
+            
         time.sleep(1)
         if os.path.exists(response_file):
             time.sleep(0.5) # Wait a moment for file write to complete

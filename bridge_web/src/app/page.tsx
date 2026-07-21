@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Play, Square, Activity, Bot, Code, MonitorPlay, Loader2, Eraser, AlertOctagon, Send, ChevronDown } from "lucide-react";
+import { Play, Square, Activity, Bot, Code, MonitorPlay, Loader2, Eraser, AlertOctagon, Send, ChevronDown, Settings, X, CheckCircle2, Circle } from "lucide-react";
 
 type LogEvent = {
   id: number;
@@ -23,10 +23,15 @@ export default function Dashboard() {
   const [agentState, setAgentState] = useState<AgentState>("idle");
   const [activePanel, setActivePanel] = useState<string | null>(null);
   const [hasStarted, setHasStarted] = useState(false);
+  const [hasCheckpoint, setHasCheckpoint] = useState(false);
   
   const [models, setModels] = useState<string[]>([]);
   const [activeModel, setActiveModel] = useState<string>("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [configData, setConfigData] = useState({ dev_server_cwd: "", max_turns: 40, critic_retry_cap: 3, critic_mode: "chatgpt" });
+  const [activePhase, setActivePhase] = useState<number>(0);
   
   const wsRef = useRef<WebSocket | null>(null);
   
@@ -38,6 +43,53 @@ export default function Dashboard() {
   };
   
   const logIdCounter = useRef(0);
+
+  const checkCheckpointStatus = async () => {
+    try {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/checkpoint`);
+      if (res.ok) {
+        const data = await res.json();
+        setHasCheckpoint(data.has_checkpoint);
+      }
+    } catch (err) {
+      console.warn("Failed to check checkpoint:", err);
+    }
+  };
+
+  useEffect(() => {
+    checkCheckpointStatus();
+    const interval = setInterval(checkCheckpointStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchConfig = async () => {
+    try {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/config`);
+      if (res.ok) {
+        const data = await res.json();
+        setConfigData(data);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch config:", err);
+    }
+  };
+
+  const saveConfig = async () => {
+    try {
+      await fetch(`http://${window.location.hostname}:8000/api/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(configData)
+      });
+      setIsSettingsOpen(false);
+    } catch (err) {
+      console.warn("Failed to save config:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchConfig();
+  }, []);
 
   // Fetch Models
   useEffect(() => {
@@ -86,6 +138,10 @@ export default function Dashboard() {
           if (msg.includes("[System] Agent gracefully stopped.")) {
             setAgentState("idle");
           }
+          if (msg.includes("Starting Phase 1")) setActivePhase(1);
+          else if (msg.includes("Starting Phase 2")) setActivePhase(2);
+          else if (msg.includes("Starting Phase 3")) setActivePhase(3);
+          else if (msg.includes("Goal Achieved") || msg.includes("gracefully completed")) setActivePhase(4);
   
           // Log Routing Logic
           if (msg.includes("[Antigravity]")) {
@@ -147,18 +203,19 @@ export default function Dashboard() {
     setHasStarted(false);
   };
 
-  const handleStart = async () => {
-    if (!initialTask) return;
+  const handleStart = async (resume: boolean = false) => {
+    if (!initialTask && !resume) return;
     setAgentState("running");
     setHasStarted(true);
     try {
       const res = await fetch(`http://${window.location.hostname}:8000/api/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task: initialTask })
+        body: JSON.stringify({ task: initialTask || "Resume Task", resume })
       });
       if (res.ok) {
-        setSystemLogs(prev => [...prev, { id: logIdCounter.current++, message: "[System] Bridge Engine Started in Background..." }]);
+        setSystemLogs(prev => [...prev, { id: logIdCounter.current++, message: `[System] Bridge Engine Started (Resume: ${resume}) in Background...` }]);
+        if (resume) setHasCheckpoint(false);
       }
     } catch (error) {
       console.warn("Failed to start:", error);
@@ -245,6 +302,14 @@ export default function Dashboard() {
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#242321] text-[#E6DED0] font-sans flex flex-col selection:bg-[#E9D9B9] selection:text-[#242321]">
+      {/* Settings Button */}
+      <button 
+        onClick={() => setIsSettingsOpen(true)}
+        className="absolute top-6 right-6 p-2 rounded-full hover:bg-[#3A3937] transition-colors text-[#8A8987] hover:text-[#E9D9B9] z-50"
+      >
+        <Settings size={20} />
+      </button>
+
       {/* Main Content Area */}
       <div className={`flex-1 flex flex-col items-center px-4 w-full max-w-4xl mx-auto min-h-0 overflow-y-auto hide-scrollbar transition-all duration-700 ease-in-out ${
         hasStarted ? "justify-start pt-[8vh] pb-8" : "justify-center"
@@ -322,7 +387,7 @@ export default function Dashboard() {
 
             {/* Send Button */}
             <button 
-              onClick={handleStart}
+              onClick={() => handleStart(false)}
               disabled={!initialTask || agentState !== 'idle'}
               className="flex items-center justify-center w-10 h-10 rounded-xl bg-[#E9D9B9] text-[#242321] hover:bg-white disabled:opacity-50 disabled:bg-[#3A3937] disabled:text-[#8A8987] transition-colors ml-1"
             >
@@ -332,11 +397,18 @@ export default function Dashboard() {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap items-center justify-center gap-3 mt-8 pb-4">
+        <div className="flex flex-wrap items-center justify-center gap-3 mt-4 pb-2">
           {agentState === "idle" ? (
-            <button onClick={handleStart} className="flex items-center gap-2 px-5 py-2.5 bg-[#363533] hover:bg-[#464543] rounded-full text-sm font-medium transition-colors border border-[#4A4947] shadow-sm">
-              <Play size={14} className="text-[#A6A095]" /> Start Agent
-            </button>
+            <>
+              {hasCheckpoint && (
+                <button onClick={() => handleStart(true)} className="flex items-center gap-2 px-5 py-2.5 bg-[#4A6B53] hover:bg-[#5C8567] rounded-full text-sm font-medium transition-colors border border-[#5C8567] shadow-sm text-[#E9D9B9]">
+                  <Play size={14} className="text-[#E9D9B9]" /> Resume Agent
+                </button>
+              )}
+              <button onClick={() => handleStart(false)} className="flex items-center gap-2 px-5 py-2.5 bg-[#363533] hover:bg-[#464543] rounded-full text-sm font-medium transition-colors border border-[#4A4947] shadow-sm">
+                <Play size={14} className="text-[#A6A095]" /> {hasCheckpoint ? "Start Fresh" : "Start Agent"}
+              </button>
+            </>
           ) : agentState === "running" ? (
             <button onClick={handleStop} className="flex items-center gap-2 px-5 py-2.5 bg-[#DA8769]/10 hover:bg-[#DA8769]/20 text-[#DA8769] rounded-full text-sm font-medium transition-colors border border-[#DA8769]/30 shadow-sm">
               <Square size={14} className="fill-current" /> Stop Agent
@@ -361,6 +433,46 @@ export default function Dashboard() {
             <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500/80 shadow-[0_0_6px_rgba(16,185,129,0.5)]' : 'bg-red-500/80'}`} />
             {isConnected ? 'Live' : 'Offline'}
           </div>
+        </div>
+
+        {/* Phase Tracker (Visible only when running) */}
+        <div className={`w-full max-w-2xl mt-6 transition-all duration-700 ease-in-out ${
+          hasStarted ? "opacity-100 translate-y-0 h-16" : "opacity-0 translate-y-4 h-0 overflow-hidden pointer-events-none"
+        }`}>
+          <div className="flex items-center justify-between relative px-8">
+            <div className="absolute top-4 left-12 right-12 h-[2px] bg-[#3A3937] z-0" />
+            <div className="absolute top-4 left-12 h-[2px] bg-[#E9D9B9] z-0 transition-all duration-1000" style={{ width: activePhase >= 4 ? '100%' : activePhase === 3 ? '100%' : activePhase === 2 ? '50%' : '0%' }} />
+            
+            {[
+              { id: 1, label: "Architect" },
+              { id: 2, label: "Builder" },
+              { id: 3, label: "Critic" }
+            ].map(phase => (
+              <div key={phase.id} className="relative z-10 flex flex-col items-center gap-2">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-500 shadow-md ${
+                  activePhase > phase.id ? 'bg-[#E9D9B9] text-[#242321]' : 
+                  activePhase === phase.id ? 'bg-[#2A2927] border-2 border-[#E9D9B9] text-[#E9D9B9] animate-pulse shadow-[0_0_10px_rgba(233,217,185,0.4)]' : 
+                  'bg-[#2A2927] border-2 border-[#4A4947] text-[#6A6967]'
+                }`}>
+                  {activePhase > phase.id ? <CheckCircle2 size={16} /> : <span className="text-xs font-bold">{phase.id}</span>}
+                </div>
+                <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors duration-500 ${
+                  activePhase >= phase.id ? 'text-[#E9D9B9]' : 'text-[#6A6967]'
+                }`}>{phase.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+
+
+        {/* Quick Stats Panel */}
+        <div className="flex items-center gap-4 mt-2 text-[11px] font-mono text-[#6A6967]">
+          <span>Target: {configData.dev_server_cwd.split('\\').pop() || configData.dev_server_cwd.split('/').pop() || 'None'}</span>
+          <span>•</span>
+          <span>Critic: {configData.critic_mode === 'chatgpt' ? 'ChatGPT' : 'Local'}</span>
+          <span>•</span>
+          <span>Max Turns: {configData.max_turns}</span>
         </div>
 
         {/* Active Prompt Response Input */}
@@ -425,6 +537,69 @@ export default function Dashboard() {
         </div>
       </div>
       
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#2A2927] border border-[#4A4947] rounded-2xl w-[90%] max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-medium text-[#E9D9B9]">Settings</h2>
+              <button onClick={() => setIsSettingsOpen(false)} className="text-[#8A8987] hover:text-[#E6DED0] transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-[#8A8987] mb-1.5 uppercase tracking-wider">Target Directory</label>
+                <input 
+                  value={configData.dev_server_cwd}
+                  onChange={e => setConfigData({...configData, dev_server_cwd: e.target.value})}
+                  className="w-full bg-[#1A1918] border border-[#4A4947] focus:border-[#E9D9B9] outline-none text-[#E6DED0] px-3 py-2.5 rounded-lg text-sm transition-colors"
+                />
+              </div>
+              
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-[10px] font-bold text-[#8A8987] mb-1.5 uppercase tracking-wider">Max Turns</label>
+                  <input 
+                    type="number"
+                    value={configData.max_turns}
+                    onChange={e => setConfigData({...configData, max_turns: parseInt(e.target.value) || 40})}
+                    className="w-full bg-[#1A1918] border border-[#4A4947] focus:border-[#E9D9B9] outline-none text-[#E6DED0] px-3 py-2.5 rounded-lg text-sm transition-colors"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-[10px] font-bold text-[#8A8987] mb-1.5 uppercase tracking-wider">Critic Retries</label>
+                  <input 
+                    type="number"
+                    value={configData.critic_retry_cap}
+                    onChange={e => setConfigData({...configData, critic_retry_cap: parseInt(e.target.value) || 3})}
+                    className="w-full bg-[#1A1918] border border-[#4A4947] focus:border-[#E9D9B9] outline-none text-[#E6DED0] px-3 py-2.5 rounded-lg text-sm transition-colors"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-[10px] font-bold text-[#8A8987] mb-1.5 uppercase tracking-wider">Critic Mode</label>
+                <select 
+                  value={configData.critic_mode}
+                  onChange={e => setConfigData({...configData, critic_mode: e.target.value})}
+                  className="w-full bg-[#1A1918] border border-[#4A4947] focus:border-[#E9D9B9] outline-none text-[#E6DED0] px-3 py-2.5 rounded-lg text-sm transition-colors appearance-none cursor-pointer"
+                >
+                  <option value="chatgpt">ChatGPT (Web)</option>
+                  <option value="local">Local Model (Qwen-VL)</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="mt-8 flex justify-end gap-3">
+              <button onClick={() => { setIsSettingsOpen(false); fetchConfig(); }} className="px-4 py-2 text-sm font-medium text-[#8A8987] hover:text-[#E6DED0] transition-colors">Cancel</button>
+              <button onClick={saveConfig} className="px-4 py-2 bg-[#E9D9B9] text-[#242321] hover:bg-white rounded-lg text-sm font-medium transition-colors shadow-md">Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hide Scrollbar Style */}
       <style dangerouslySetInnerHTML={{__html: `
         .hide-scrollbar::-webkit-scrollbar {

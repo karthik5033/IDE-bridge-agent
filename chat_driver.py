@@ -180,6 +180,10 @@ def wait_for_chat_response(page, sent_text: str, platform: dict = None) -> str:
         stable_time = 0.0
 
         while True:
+            if getattr(config, "STOP_REQUESTED", False):
+                print(f"\n[Chat UI] Stop requested while waiting for {platform.get('url', 'Chat')}. Aborting wait.")
+                raise KeyboardInterrupt("Stopped by user via dashboard")
+                
             check_rate_limit(page)
 
             # Expand any 'Show more' buttons that might be hiding the prompt

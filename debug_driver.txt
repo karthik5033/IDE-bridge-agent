@@ -1,0 +1,27 @@
+Looking for pattern: .*Antigravity IDE.*
+OpenInputDesktop(GENERIC_ALL) returned: 1800
+SetThreadDesktop(GENERIC_ALL) returned: 1
+Total visible windows found: 21
+Visible window titles:
+  - Create Next App - Google Chrome
+  - about:blank
+  - New chat - Claude
+  - next-server (v16.2.10)
+  - C:\Users\Karthik k P\AppData\Local\Programs\Python\Python314\python.exe
+  - kpautomate - Antigravity IDE - tailwind.config.js
+  - (8) Instagram - Brave
+  - localhost
+  - localhost
+  - localhost
+  - GitHub - karthik5033 (karthik5033)
+  - Windows Input Experience
+  - UI Critic Initialization
+  - Nahimic
+  - Nahimic
+  - PowerToys Quick Access (Preview)
+  - Command Palette
+  - C:\Users\Karthik k P\OneDrive\Documents\Rainmeter\Skins\Mond\Clock\Clock.ini
+  - C:\Users\Karthik k P\OneDrive\Documents\Rainmeter\Skins\Mond\Weather\Weather.ini
+  - C:\Users\Karthik k P\OneDrive\Documents\Rainmeter\Skins\Mond\Player\Player.ini
+  - Program Manager
+Matching HWNDs: [2752806]

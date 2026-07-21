@@ -6,6 +6,7 @@ import requests
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
 
 # Ensure bridge_agent directory is in sys.path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -98,6 +99,33 @@ active_thread = None
 def check_checkpoint():
     chk = checkpoint.load_checkpoint()
     return {"has_checkpoint": chk is not None}
+
+class ConfigUpdate(BaseModel):
+    dev_server_cwd: Optional[str] = None
+    max_turns: Optional[int] = None
+    critic_retry_cap: Optional[int] = None
+    critic_mode: Optional[str] = None
+
+@app.get("/api/config")
+def get_config():
+    return {
+        "dev_server_cwd": config.DEV_SERVER_CWD,
+        "max_turns": config.MAX_TURNS,
+        "critic_retry_cap": config.CRITIC_RETRY_CAP,
+        "critic_mode": config.CRITIC_MODE,
+    }
+
+@app.post("/api/config")
+def update_config(req: ConfigUpdate):
+    if req.dev_server_cwd is not None:
+        config.DEV_SERVER_CWD = req.dev_server_cwd
+    if req.max_turns is not None:
+        config.MAX_TURNS = req.max_turns
+    if req.critic_retry_cap is not None:
+        config.CRITIC_RETRY_CAP = req.critic_retry_cap
+    if req.critic_mode is not None:
+        config.CRITIC_MODE = req.critic_mode
+    return {"status": "success"}
 
 @app.post("/api/start")
 async def start_bridge(req: StartRequest):

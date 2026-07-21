@@ -8,11 +8,11 @@ import os
 from bridge_logger import bprint as print, binput as input
 from page_explorer import explore_page, stitch_screenshots
 
-CRITIC_SYSTEM_PROMPT = config.load_prompt("critic_system.md")
+CRITIC_SYSTEM_PROMPT_TEMPLATE = config.load_prompt("critic_system.md")
 
 def extract_dom_summary(page, max_depth=5):
     """Extracts a simplified summary of the DOM and checks for layout issues."""
-    return page.evaluate(f"""() => {{
+    return page.evaluate(f"""(maxDepth) => {{
         function summarizeElement(el, depth, maxDepth) {{
             if (depth > maxDepth) return "...";
             if (!el) return null;
@@ -147,9 +147,14 @@ def capture_page_context(dev_page):
 
     return composite_b64, composite_bytes, dom_summary
 
-def _evaluate_via_web_ui(screenshot_b64: str, screenshot_bytes: bytes, dom_summary: str, console_errors: str, page, platform: dict) -> dict:
+def _evaluate_via_web_ui(screenshot_b64: str, screenshot_bytes: bytes, dom_summary: str, console_errors: str, page, platform: dict, design_system: str = "", prev_screenshot_bytes: bytes = None) -> dict:
     print(f"[Critic] Evaluating UI via {platform.get('name', 'Web UI')}. Found {len(console_errors)} bytes of error logs.")
-    prompt = f"Console Errors:\n{console_errors if console_errors else 'None'}\n\nDOM Summary:\n```html\n{dom_summary}\n```\n\nEvaluate the UI based on the system criteria and the console errors.\n\n{CRITIC_SYSTEM_PROMPT}"
+    prompt_text = CRITIC_SYSTEM_PROMPT_TEMPLATE.replace("{design_system}", design_system)
+    
+    if prev_screenshot_bytes:
+        prompt = f"Console Errors:\n{console_errors if console_errors else 'None'}\n\nDOM Summary:\n```html\n{dom_summary}\n```\n\nI have attached TWO images. The FIRST image is the 'Before' state. The SECOND image is the 'Current' state.\nEvaluate the Current UI based on the system criteria and the console errors. Verify that the previous instructions were followed by comparing Before and Current.\n\n{prompt_text}"
+    else:
+        prompt = f"Console Errors:\n{console_errors if console_errors else 'None'}\n\nDOM Summary:\n```html\n{dom_summary}\n```\n\nEvaluate the UI based on the system criteria and the console errors.\n\n{prompt_text}"
     
     try:
         page.bring_to_front()
@@ -169,16 +174,23 @@ def _evaluate_via_web_ui(screenshot_b64: str, screenshot_bytes: bytes, dom_summa
                 tmp.write(screenshot_bytes)
                 tmp_path = tmp.name
                 
+            upload_paths = [tmp_path]
+            if prev_screenshot_bytes:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp2:
+                    tmp2.write(prev_screenshot_bytes)
+                    upload_paths.append(tmp2.name)
+                
             for sel in selectors:
                 if page.locator(sel).count() > 0:
-                    page.locator(sel).first.set_input_files(tmp_path)
+                    page.locator(sel).first.set_input_files(upload_paths)
                     uploaded = True
                     break
             
-            os.remove(tmp_path)
+            for path in upload_paths:
+                os.remove(path)
             
             if uploaded:
-                time.sleep(4) # wait for thumbnail to appear
+                time.sleep(4 + 2 * len(upload_paths)) # wait for thumbnails
         
         # Type the prompt (using keyboard to avoid clearing)
         page.keyboard.insert_text(prompt)
@@ -235,9 +247,10 @@ def _evaluate_via_web_ui(screenshot_b64: str, screenshot_bytes: bytes, dom_summa
         print(f"[Critic] Web UI evaluation failed: {e}")
         return {"verdict": "pass", "reason": f"Fallback to pass due to critic error: {e}", "instruction": None}
 
-def _evaluate_via_local(screenshot_base64: str, console_errors: str) -> dict:
+def _evaluate_via_local(screenshot_base64: str, console_errors: str, design_system: str = "") -> dict:
     print(f"[Critic] Evaluating UI via local Ollama ({config.OLLAMA_MODELS['ui_critic']})...")
-    prompt = f"Console Errors:\n{console_errors if console_errors else 'None'}\n\nEvaluate the UI based on the system criteria and the console errors.\n\n{CRITIC_SYSTEM_PROMPT}"
+    prompt_text = CRITIC_SYSTEM_PROMPT_TEMPLATE.replace("{design_system}", design_system)
+    prompt = f"Console Errors:\n{console_errors if console_errors else 'None'}\n\nEvaluate the UI based on the system criteria and the console errors.\n\n{prompt_text}"
     
     payload = {
         "model": config.OLLAMA_MODELS["ui_critic"],
@@ -268,12 +281,52 @@ def _evaluate_via_local(screenshot_base64: str, console_errors: str) -> dict:
         print(f"[Critic] Error calling Ollama: {e}")
         return {"verdict": "pass", "reason": "Critic service unavailable", "instruction": None}
 
-def evaluate_ui(screenshot_b64: str, screenshot_bytes: bytes, dom_summary: str, console_errors: str, critic_page=None, critic_platform=None) -> dict:
+def _pre_check_dom(dom_summary: str) -> dict | None:
+    """
+    Fast programmatic checks on the DOM before sending to the LLM critic.
+    Returns a fail verdict dict if issues found, None if clean.
+    """
+    import re
+    
+    # Check for visible placeholder text
+    placeholder_patterns = [
+        r'placeholder-\d+',
+        r'placeholder[-_]thumb',
+        r'placeholder[-_]full',
+        r'placeholder[-_]half',
+        r'Image goes here',
+        r'Coming soon\.\.\.',
+        r'Under construction',
+    ]
+    
+    for pattern in placeholder_patterns:
+        match = re.search(pattern, dom_summary, re.IGNORECASE)
+        if match:
+            found = match.group(0)
+            return {
+                "verdict": "fix_needed",
+                "severity": "critical",
+                "reason": f"Visible placeholder text found in the UI: '{found}'. A production app must never render placeholder strings as user-visible content.",
+                "instruction": f"The text '{found}' is being rendered as visible content in the page. Replace all placeholder text in components with styled CSS visual treatments (use CSS gradients via nth-child selectors, or generate real images). Do NOT render the 'thumbnail' or 'imageUrl' data strings as visible text — they are data keys, not display content."
+            }
+    
+    return None
+
+
+def evaluate_ui(screenshot_b64: str, screenshot_bytes: bytes, dom_summary: str, console_errors: str, critic_page=None, critic_platform=None, design_system: str = "", prev_screenshot_bytes: bytes = None) -> dict:
     """
     Main entry point for UI evaluation. 
-    Routes to the active web critic (ChatGPT/Claude) or local Ollama based on config.
+    Runs fast programmatic pre-checks first, then routes to LLM critic.
     """
+    # --- Fast pre-checks (no LLM needed) ---
+    pre_check_result = _pre_check_dom(dom_summary)
+    if pre_check_result:
+        print(f"[Critic] PRE-CHECK FAIL: {pre_check_result['reason']}")
+        return pre_check_result
+    
+    # --- LLM-based evaluation ---
     if config.CRITIC_MODE == "chatgpt" and critic_page and critic_platform:
-        return _evaluate_via_web_ui(screenshot_b64, screenshot_bytes, dom_summary, console_errors, critic_page, critic_platform)
+        return _evaluate_via_web_ui(screenshot_b64, screenshot_bytes, dom_summary, console_errors, critic_page, critic_platform, design_system, prev_screenshot_bytes)
     else:
-        return _evaluate_via_local(screenshot_b64, console_errors)
+        return _evaluate_via_local(screenshot_b64, console_errors, design_system)
+

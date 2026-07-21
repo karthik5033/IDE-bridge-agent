@@ -1,0 +1,149 @@
+Control Identifiers:
+
+Dialog - 'kpautomate - Antigravity IDE - antigravity_driver.py'    (L104, T0, R1826, B1082)
+['kpautomate - Antigravity IDE - antigravity_driver.pyDialog', 'kpautomate - Antigravity IDE - antigravity_driver.py', 'Dialog', 'kpautomate - Antigravity IDE - antigravity_driver.py0', 'kpautomate - Antigravity IDE - antigravity_driver.py1']
+child_window(title="kpautomate - Antigravity IDE - antigravity_driver.py", control_type="Window")
+   | 
+   | Pane - ''    (L104, T0, R1826, B1082)
+   | ['Pane', '\nPane', 'Pane0', 'Pane1', '\nPane0', '\nPane1']
+   | 
+   | Pane - 'kpautomate - Antigravity IDE - antigravity_driver.py'    (L102, T0, R1826, B1083)
+   | ['Pane2', 'kpautomate - Antigravity IDE - antigravity_driver.py2', 'kpautomate - Antigravity IDE - antigravity_driver.pyPane']
+   | child_window(title="kpautomate - Antigravity IDE - antigravity_driver.py", control_type="Pane")
+   |    | 
+   |    | Pane - ''    (L102, T0, R1826, B1083)
+   |    | ['Pane3', '\nPane2']
+   |    |    | 
+   |    |    | Pane - ''    (L102, T0, R1826, B1083)
+   |    |    | ['Pane4', '\nPane3']
+   |    |    |    | 
+   |    |    |    | Pane - ''    (L1630, T1, R1824, B52)
+   |    |    |    | ['Pane5', '\ueab4Pane']
+   |    |    |    |    | 
+   |    |    |    |    | Button - 'Minimize'    (L1628, T1, R1693, B52)
+   |    |    |    |    | ['Minimize', 'MinimizeButton', 'Button', 'Button0', 'Button1']
+   |    |    |    |    | child_window(title="Minimize", control_type="Button")
+   |    |    |    |    | 
+   |    |    |    |    | Button - 'Maximize'    (L1692, T1, R1759, B52)
+   |    |    |    |    | ['Maximize', 'MaximizeButton', 'Button2']
+   |    |    |    |    | child_window(title="Maximize", control_type="Button")
+   |    |    |    |    | 
+   |    |    |    |    | Button - 'Close'    (L1758, T1, R1824, B52)
+   |    |    |    |    | ['Close', 'CloseButton', 'Button3']
+   |    |    |    |    | child_window(title="Close", control_type="Button")
+   |    |    |    | 
+   |    |    |    | Pane - ''    (L102, T0, R1826, B1083)
+   |    |    |    | ['Pane6', '\nPane4']
+   |    |    |    |    | 
+   |    |    |    |    | Pane - ''    (L102, T0, R1826, B1083)
+   |    |    |    |    | ['Pane7', '\nPane5']
+   |    |    |    |    |    | 
+   |    |    |    |    |    | Pane - ''    (L102, T0, R1826, B1083)
+   |    |    |    |    |    | ['Pane8', '\nPane6']
+   |    |    |    |    |    |    | 
+   |    |    |    |    |    |    | Pane - ''    (L102, T0, R1826, B1083)
+   |    |    |    |    |    |    | ['Pane9', '\nPane7']
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Document - 'kpautomate - Antigravity IDE - antigravity_driver.py'    (L102, T0, R1825, B1083)
+   |    |    |    |    |    |    |    | ['Document', 'kpautomate - Antigravity IDE - antigravity_driver.py3', 'kpautomate - Antigravity IDE - antigravity_driver.pyDocument']
+   |    |    |    |    |    |    |    | child_window(title="kpautomate - Antigravity IDE - antigravity_driver.py", auto_id="RootWebArea", control_type="Document")
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | GroupBox - ''    (L102, T0, R1825, B1083)
+   |    |    |    |    |    |    |    |    | ['GroupBox', '\nGroupBox', 'GroupBox0', 'GroupBox1', '\nGroupBox0', '\nGroupBox1']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Pane - ''    (L102, T0, R1826, B1083)
+   |    |    |    |    |    |    |    |    |    | ['Pane10', '\nPane8']
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | GroupBox - ''    (L102, T49, R1826, B56)
+   |    |    |    |    |    |    |    |    |    |    | ['GroupBox2', 'ExplorerGroupBox', 'ExplorerGroupBox0', 'ExplorerGroupBox1']
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | GroupBox - ''    (L102, T49, R1826, B56)
+   |    |    |    |    |    |    |    |    |    |    | ['GroupBox3', 'ExplorerGroupBox2']
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | GroupBox - ''    (L102, T1046, R1826, B1053)
+   |    |    |    |    |    |    |    |    |    |    | ['GroupBox4', 'TimelineGroupBox', 'TimelineGroupBox0', 'TimelineGroupBox1']
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Menu - ''    (L154, T0, R738, B52)
+   |    |    |    |    |    |    |    |    |    |    | ['Menu', '\nMenu']
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | MenuItem - 'File'    (L154, T0, R209, B52)
+   |    |    |    |    |    |    |    |    |    |    |    | ['MenuItem', 'File', 'FileMenuItem', 'MenuItem0', 'MenuItem1']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="File", control_type="MenuItem")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | MenuItem - 'Edit'    (L208, T0, R265, B52)
+   |    |    |    |    |    |    |    |    |    |    |    | ['Edit', 'MenuItem2', 'EditMenuItem', 'Edit0', 'Edit1']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Edit", control_type="MenuItem")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | MenuItem - 'Selection'    (L264, T0, R368, B52)
+   |    |    |    |    |    |    |    |    |    |    |    | ['SelectionMenuItem', 'Selection', 'MenuItem3']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Selection", control_type="MenuItem")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | MenuItem - 'View'    (L367, T0, R433, B52)
+   |    |    |    |    |    |    |    |    |    |    |    | ['ViewMenuItem', 'View', 'MenuItem4']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="View", control_type="MenuItem")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | MenuItem - 'Go'    (L432, T0, R482, B52)
+   |    |    |    |    |    |    |    |    |    |    |    | ['GoMenuItem', 'MenuItem5', 'Go']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Go", control_type="MenuItem")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | MenuItem - 'Run'    (L481, T0, R540, B52)
+   |    |    |    |    |    |    |    |    |    |    |    | ['Run', 'RunMenuItem', 'MenuItem6']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Run", control_type="MenuItem")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | MenuItem - 'Terminal'    (L539, T0, R637, B52)
+   |    |    |    |    |    |    |    |    |    |    |    | ['MenuItem7', 'Terminal', 'TerminalMenuItem']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Terminal", control_type="MenuItem")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | MenuItem - 'Help'    (L636, T0, R701, B52)
+   |    |    |    |    |    |    |    |    |    |    |    | ['HelpMenuItem', 'Help', 'MenuItem8']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Help", control_type="MenuItem")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Toolbar - ''    (L752, T0, R1175, B52)
+   |    |    |    |    |    |    |    |    |    |    | ['Toolbar', 'kpautomate - Antigravity IDE - antigravity_driver.pyToolbar', 'Toolbar0', 'Toolbar1']
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Static - 'kpautomate - Antigravity IDE - antigravity_driver.py'    (L766, T13, R1175, B38)
+   |    |    |    |    |    |    |    |    |    |    | ['kpautomate - Antigravity IDE - antigravity_driver.py4', 'Static', 'kpautomate - Antigravity IDE - antigravity_driver.pyStatic', 'Static0', 'Static1']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="kpautomate - Antigravity IDE - antigravity_driver.py", control_type="Text")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Toolbar - 'Title actions'    (L1292, T0, R1623, B52)
+   |    |    |    |    |    |    |    |    |    |    | ['Title actions', 'Toolbar2', 'Title actionsToolbar']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="Title actions", control_type="ToolBar")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | Button - 'Customize Layout...'    (L1292, T9, R1326, B43)
+   |    |    |    |    |    |    |    |    |    |    |    | ['Customize Layout...Button', 'Customize Layout...', 'Button4']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Customize Layout...", control_type="Button")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | CheckBox - 'Toggle Primary Side Bar (Ctrl+B)'    (L1328, T9, R1362, B43)
+   |    |    |    |    |    |    |    |    |    |    |    | ['CheckBox', 'Toggle Primary Side Bar (Ctrl+B)', 'Toggle Primary Side Bar (Ctrl+B)CheckBox', 'CheckBox0', 'CheckBox1']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Toggle Primary Side Bar (Ctrl+B)", control_type="CheckBox")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | CheckBox - 'Toggle Panel (Ctrl+J)'    (L1364, T9, R1398, B43)
+   |    |    |    |    |    |    |    |    |    |    |    | ['Toggle Panel (Ctrl+J)', 'CheckBox2', 'Toggle Panel (Ctrl+J)CheckBox']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Toggle Panel (Ctrl+J)", control_type="CheckBox")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | CheckBox - 'Toggle Agent (Ctrl+Alt+B)'    (L1400, T9, R1434, B43)
+   |    |    |    |    |    |    |    |    |    |    |    | ['CheckBox3', 'Toggle Agent (Ctrl+Alt+B)', 'Toggle Agent (Ctrl+Alt+B)CheckBox']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Toggle Agent (Ctrl+Alt+B)", control_type="CheckBox")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | Button - 'Quick Open'    (L1436, T9, R1470, B43)
+   |    |    |    |    |    |    |    |    |    |    |    | ['Quick Open', 'Quick OpenButton', 'Button5']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Quick Open", control_type="Button")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | Button - 'Open Browser (Preview)'    (L1485, T9, R1519, B43)
+   |    |    |    |    |    |    |    |    |    |    |    | ['Open Browser (Preview)Button', 'Open Browser (Preview)', 'Button6']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Open Browser (Preview)", control_type="Button")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | Button - 'Editor-Specific Settings'    (L1521, T9, R1555, B43)
+   |    |    |    |    |    |    |    |    |    |    |    | ['Editor-Specific Settings', 'Editor-Specific SettingsButton', 'Button7']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Editor-Specific Settings", control_type="Button")
+   |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    | Button - 'Profile'    (L1558, T6, R1623, B46)
+   |    |    |    |    |    |    |    |    |    |    |    | ['Button8', 'ProfileButton', 'Profile', 'Profile0', 'Profile1']
+   |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Profile", control_type="Button")
+   |    |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    |    | Image - ''    (L1567, T13, R1592, B38)
+   |    |    |    |    |    |    |    |    |    |    |    |    | ['Image', 'kpautomate - Antigravity IDE - antigravity_driver.pyImage', 'Image0', 'Image1']
+   |    |    |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    |    |    | GroupBox - 'Profile'    (L1588, T9, R1617, B43)
+   |    |    |    |    |    |    |    |    |    |    |    |    | ['GroupBox5', 'ProfileGroupBox', 'Profile2']
+   |    |    |    |    |    |    |    |    |    |    |    |    | child_window(title="Profile", control_type="Group")

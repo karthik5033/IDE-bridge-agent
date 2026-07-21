@@ -14,6 +14,8 @@
 - Hardcoded rgba(0,0,0,...) colors that break when the background color changes
 
 ### Layout & Density (Figma/shadcn Standard)
+- "Single shape in empty space" compositions: e.g. a card with nothing but a title and a floating diamond or circle.
+- Components lacking structural sub-elements: Cards MUST have at least 3 distinct sub-elements (stats, charts, metadata rows, badges).
 - Centered hero with "big number + small label + gradient blob" when the content doesn't call for it
 - Numbered section markers (01/ 02/ 03/) as decoration on non-sequential content
 - Newspaper-column layout when the content isn't editorial
@@ -24,12 +26,15 @@
 - Low-density layouts: Pages with massive empty gaps and very little content, looking like a "child's mess" rather than a professional app. We expect high-density, Shadcn-level UI polish.
 
 ### Typography
+- Uniform typography weight: e.g. an entire heading or paragraph at 400 weight or 600 weight with no contrast. Mix weights to create emphasis.
 - Default system fonts (no Google Fonts loaded)
 - More than 2 font families (3 is acceptable only if the third is a mono font for code/metadata)
 - Display text and body text using the same weight (headings MUST be visually heavier)
 - Inconsistent heading sizes (h2 larger than h1, etc.)
 
 ### Animation
+- Hover-only motion: No ambient (always-running) animations on the page.
+- Abstract shapes with no semantic meaning animating (e.g. a generic triangle rotating). Motion must be applied to semantic data or structured UI elements.
 - More than 3 distinct animation types on one page
 - Animations longer than 500ms
 - Parallax scrolling when the content doesn't benefit from depth
